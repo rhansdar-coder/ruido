@@ -50,7 +50,8 @@ import { resolve } from "node:path";
 
 import { providerTerms, acceptOrder, invoiceFor, markPaid, planDecoys, summarisePlan, orderSeed } from "../src/provider.mjs";
 import { parseWindowProof } from "../src/order.mjs";
-import { admitReveal } from "../src/reveal.mjs";
+import { admitReveal, resolveHeight, HEIGHT_SOURCE } from "../src/reveal.mjs";
+import { endpointsFor } from "../src/blockheight.mjs";
 import { mulberry32 } from "../src/rng.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -60,6 +61,8 @@ const arg = (name, fallback) => {
   const i = argv.indexOf(`--${name}`);
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
 };
+/** A switch rather than a value: `--verify` is present or it is not. */
+const flag = (name) => argv.includes(`--${name}`);
 
 const PORT = Number(arg("port", process.env.PORT ?? 8081));
 const HOST = arg("host", "127.0.0.1");
@@ -71,25 +74,44 @@ const TERMS = providerTerms({
 });
 
 /**
- * The height this provider believes the chain is at, or `null` if it has no
- * source of its own.
+ * Where this provider gets the chain height, and how much it is trusted.
  *
  * This matters for exactly one decision: whether a reveal may be published. The
  * provider is the party that benefits from receiving a reveal early, so letting
  * it settle on a height the buyer supplied is letting the interested party be
- * the only witness. When `--at` is set, that number wins and the buyer's is
- * ignored; when it is not, the settlement says out loud that the height came
- * from the buyer — an unverified assertion, not a measurement.
+ * the only witness. Three arrangements, in descending order of strength:
  *
- * A real provider reads this from its own node. This reference one cannot: it
- * is offline on purpose, and reaching a chain is the emitter's job.
+ *   --at <block>   pinned by the operator. Trusted as far as the operator is,
+ *                  and no further: it is a human typing a number, and it goes
+ *                  stale the moment the chain moves.
+ *   --verify       read from the chain. The only arrangement where the provider
+ *                  is not taking anyone's word. If the read fails the route
+ *                  REFUSES; it does not quietly fall back to the buyer's number,
+ *                  because falling back is the check that was asked for.
+ *   (neither)      the buyer's own assertion, labelled as unverified.
+ *
+ * `--rpc <url>` narrows `--verify` to one endpoint instead of the network's
+ * public list, which is what a test or a private node wants.
  */
 const AT = arg("at", process.env.RUIDO_AT ?? null);
 const PROVIDER_HEIGHT = AT === null ? null : Number(AT);
+const VERIFY = flag("verify") || process.env.RUIDO_VERIFY_HEIGHT === "1";
+const RPC_URL = arg("rpc", null);
+
 if (AT !== null && !Number.isInteger(PROVIDER_HEIGHT)) {
   console.error(`\n  --at must be a block number, got ${AT}\n`);
   process.exit(1);
 }
+if (VERIFY && AT !== null) {
+  console.error(
+    "\n  --at and --verify are contradictory: one says the height is already known,\n" +
+      "  the other says to go and read it. Pick the one you mean.\n",
+  );
+  process.exit(1);
+}
+
+const HEIGHT_MODE = VERIFY ? HEIGHT_SOURCE.PROVIDER : AT !== null ? HEIGHT_SOURCE.PINNED : HEIGHT_SOURCE.BUYER;
+const HEIGHT_ENDPOINTS = RPC_URL === null ? endpointsFor(TERMS.network) : [RPC_URL];
 
 // A provider-held seed, random per run unless one is given. See `orderSeed` in
 // src/provider.mjs for what it does and does not buy.
@@ -159,9 +181,14 @@ const server = createServer(async (request, response) => {
         },
         note: "Send the order and the WINDOW proof. Sending the full reveal hands over the denomination, which is the one thing this split exists to protect.",
         revealNote: "The reveal is the fourth step and is only accepted once the window has closed. Publishing it earlier hands the provider the rung before it emits, so the route refuses and says how many blocks are left.",
-        heightSource: PROVIDER_HEIGHT === null
-          ? "no --at given: this provider will settle on the height the buyer asserts, and will label the settlement as unverified"
-          : `pinned at block ${PROVIDER_HEIGHT} by --at; the buyer's number is ignored`,
+        heightSource: {
+          pinned: `pinned at block ${PROVIDER_HEIGHT} by --at; the buyer's number is ignored, and so is the chain's`,
+          provider: RPC_URL === null
+            ? `read from the chain on every reveal, from ${HEIGHT_ENDPOINTS.length} public endpoint(s); a read that fails REFUSES the settlement rather than falling back to the buyer`
+            : `read from the chain on every reveal, from ${RPC_URL} only; a read that fails REFUSES the settlement rather than falling back to the buyer`,
+          buyer:
+            "no --at and no --verify: this provider will settle on the height the buyer asserts, and will label the settlement as unverified",
+        }[HEIGHT_MODE],
       });
     }
 
@@ -269,11 +296,21 @@ const server = createServer(async (request, response) => {
 
       const body = await readJson(request);
 
-      // Where the height comes from. A provider with its own source uses it and
-      // ignores the buyer's; one without has to take the buyer's word, and the
-      // settlement says so rather than implying a check it did not run.
-      const atBlock = PROVIDER_HEIGHT ?? body.atBlock;
-      const heightSource = PROVIDER_HEIGHT === null ? "buyer" : "provider";
+      // Where the height comes from, resolved BEFORE anything is settled. A
+      // provider asked to verify and unable to reach the chain refuses here: it
+      // does not fall back to the buyer's number, because falling back is
+      // exactly the check that was asked for.
+      const resolved = await resolveHeight({
+        mode: HEIGHT_MODE,
+        pinned: PROVIDER_HEIGHT,
+        network: TERMS.network,
+        endpoints: HEIGHT_ENDPOINTS,
+      });
+      if (!resolved.ok) return send(response, resolved.status, resolved.body);
+
+      // `null` from the buyer mode means "use the one in the request"; the other
+      // two modes produce a number the buyer's cannot override.
+      const atBlock = resolved.atBlock ?? body.atBlock;
 
       const admitted = admitReveal({
         order: record.order,
@@ -282,7 +319,7 @@ const server = createServer(async (request, response) => {
         settled: record.settlement ?? null,
         body,
         atBlock,
-        heightSource,
+        heightSource: resolved.heightSource,
         network: TERMS.network,
         claimed: CLAIMED,
       });
@@ -311,9 +348,12 @@ server.listen(PORT, HOST, () => {
   console.log(`  GET  /orders/:id`);
   console.log(`  POST /orders/:id/reveal     { reveal, atBlock, cell }   ← the fourth step\n`);
   console.log(
-    PROVIDER_HEIGHT === null
-      ? `  no --at: the reveal route will settle on the buyer's block height and label\n  the settlement unverified. Pass --at <block> to pin it instead.\n`
-      : `  --at ${PROVIDER_HEIGHT}: the reveal route settles against this height and\n  ignores the one the buyer sends.\n`,
+    {
+      pinned: `  --at ${PROVIDER_HEIGHT}: the reveal route settles against this pinned height and\n  ignores the one the buyer sends.\n`,
+      provider: `  --verify: the reveal route reads the height from the chain on every reveal\n  (${HEIGHT_ENDPOINTS.length} endpoint(s)) and ignores the buyer's. A read that fails\n  REFUSES the settlement.\n`,
+      buyer:
+        "  no --at and no --verify: the reveal route will settle on the buyer's block\n  height and label the settlement unverified. Pass --at <block> or --verify.\n",
+    }[HEIGHT_MODE],
   );
 });
 

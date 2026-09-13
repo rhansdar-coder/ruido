@@ -260,6 +260,62 @@ try {
 
     server.child.kill();
   }
+
+  // --- a provider asked to verify, and unable to ------------------------------
+  // `--verify` is the only arrangement where the provider is not taking anyone's
+  // word for the height. The property under test is what happens when it cannot
+  // deliver: it must REFUSE, and must not quietly fall back to the buyer's
+  // number. Falling back would leave the operator believing a check ran, which
+  // is the same failure as a stale figure with a worse consequence.
+
+  rule("A provider told to verify, with the chain unreachable");
+
+  {
+    const port = await freePort();
+    // A port nothing is listening on. That is also what a public endpoint having
+    // a bad day looks like from here, without depending on one having one.
+    const deadPort = await freePort();
+    const server = await startProvider(port, ["--verify", "--rpc", `http://127.0.0.1:${deadPort}/rpc`]);
+    servers.push(server.child);
+
+    const terms = await (await fetch(`${server.url}/terms`)).json();
+    check(
+      /REFUSES the settlement/.test(terms.heightSource ?? ""),
+      "the terms warn that a failed read refuses",
+      terms.heightSource ?? "—",
+    );
+
+    const bought = await run("scripts/buy.mjs", [
+      "--provider", server.url,
+      "--cell", CELL,
+      "--bits", "3",
+      "--from", String(FROM),
+      "--width", String(WIDTH),
+      "--denomination", RUNG,
+      "--tx", "0xsmoke3",
+      "--out", orderFile,
+    ]);
+    check(bought.code === 0, "the order is still accepted while the chain is unreachable", `exit ${bought.code}`);
+
+    const refused = await run("scripts/reveal.mjs", [
+      "--order", orderFile,
+      "--provider", server.url,
+      "--at", String(AFTER),
+      "--json",
+    ]);
+    check(refused.code === 1, "the reveal is refused when the height cannot be read", `exit ${refused.code}`);
+    check(/could not be read/.test(refused.err), "the refusal names the unreadable height");
+    check(/will not fall back/.test(refused.err), "the refusal says it will not fall back to the buyer's number");
+
+    // And nothing was settled. A refusal that still wrote a claim would let the
+    // next attempt find its own decoys already taken.
+    const record = JSON.parse(await readFile(orderFile, "utf8"));
+    const status = await (await fetch(`${server.url}/orders/${record.order.id}`)).json();
+    check(status.state === "emitted", "the order is left unsettled, not half-settled", status.state);
+    check(status.settlement === null, "no settlement was recorded on a refused reveal");
+
+    server.child.kill();
+  }
 } catch (error) {
   bad("the journey ran at all", error.message);
 } finally {

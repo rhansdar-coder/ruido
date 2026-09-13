@@ -36,6 +36,7 @@
 import { verifyReveal } from "./commitment.mjs";
 import { claim, settle } from "./settlement.mjs";
 import { parseReveal } from "./order.mjs";
+import { readBlockHeight } from "./blockheight.mjs";
 
 /** The block range a reveal's window covers, inclusive at both ends. */
 export function revealWindow(reveal) {
@@ -114,6 +115,88 @@ export function checkReveal(order, reveal, { network, atBlock }) {
   }
 
   return { publishable: true, reason: null, verdict, closed: true, waitBlocks: 0 };
+}
+
+/**
+ * Where the height a settlement runs against comes from.
+ *
+ * Three sources, and the difference between them is **who is trusted** — which
+ * is why the settlement records it rather than quietly using whichever number
+ * was to hand:
+ *
+ *   `pinned`   the operator said what block it is (`--at`). Trusted as far as
+ *              the operator is trusted, and no further: it is a human typing a
+ *              number, and it goes stale the moment the chain moves.
+ *   `provider` read from the chain by this provider. The strongest of the three,
+ *              and the only one where the provider is not taking anyone's word.
+ *   `buyer`    the buyer's own assertion. Unverified, and labelled as such.
+ *
+ * The provider is the party that **benefits** from receiving a reveal early, so
+ * `buyer` is the weakest arrangement: it makes the interested party the only
+ * witness. That is why it is the default only for a provider with no chain
+ * source, and why the settlement says so in words.
+ */
+export const HEIGHT_SOURCE = { PINNED: "pinned", PROVIDER: "provider", BUYER: "buyer" };
+
+/** The sentence that goes in the settlement for each source. */
+export function heightNoteFor(source) {
+  if (source === HEIGHT_SOURCE.PINNED) {
+    return "pinned by the operator with --at; the buyer's number is ignored, and so is the chain's";
+  }
+  if (source === HEIGHT_SOURCE.PROVIDER) {
+    return "read from the chain by this provider; the buyer's number is ignored";
+  }
+  return "the height was taken from the buyer and NOT verified — this provider has no chain source; a real one reads its own node";
+}
+
+/**
+ * Resolves the height for one reveal, or refuses.
+ *
+ * `mode` is `"pinned"`, `"verify"` or `"buyer"`, and it is the operator's
+ * declared intent rather than a guess. The important case is `"verify"`: when
+ * the read fails this **refuses**, and it does not fall back to the buyer's
+ * number. An operator who asked for a check and got a formality instead has been
+ * told something untrue about their own settlement — which is the same failure
+ * as a stale figure, with a worse consequence.
+ *
+ * Returns `{ ok: true, atBlock, heightSource }` — where `atBlock` is `null` for
+ * the `buyer` mode, meaning "use the one in the request" — or
+ * `{ ok: false, status, body }` for a refusal the route should send as-is.
+ *
+ * `read` is injectable so the three modes can be tested without a network.
+ */
+export async function resolveHeight({ mode = HEIGHT_SOURCE.BUYER, pinned = null, network, endpoints, read = readBlockHeight } = {}) {
+  if (mode === HEIGHT_SOURCE.PINNED) {
+    if (!Number.isInteger(pinned)) {
+      // Refused rather than treated as unset: an operator who asked for a pinned
+      // height and got a typo should not silently fall through to the buyer's.
+      return {
+        ok: false,
+        status: 500,
+        body: { error: `--at must be a block number, got ${JSON.stringify(pinned)}` },
+      };
+    }
+    return { ok: true, atBlock: pinned, heightSource: HEIGHT_SOURCE.PINNED };
+  }
+
+  if (mode === HEIGHT_SOURCE.PROVIDER) {
+    const height = await read({ network, endpoints });
+    if (!Number.isInteger(height)) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          error: "the chain height could not be read, so the window cannot be shown to have closed",
+          reason:
+            "this provider was asked to verify the height and could not, and it will not fall back to the buyer's number — falling back is exactly the check that was asked for",
+          endpoints: endpoints ?? null,
+        },
+      };
+    }
+    return { ok: true, atBlock: height, heightSource: HEIGHT_SOURCE.PROVIDER };
+  }
+
+  return { ok: true, atBlock: null, heightSource: HEIGHT_SOURCE.BUYER };
 }
 
 /**
@@ -269,9 +352,9 @@ export function admitReveal({
       settlement,
       atBlock,
       heightSource,
-      heightNote: heightSource === "provider"
-        ? "the window was shown to have closed against this provider's own height"
-        : "the height was taken from the buyer and NOT verified — this provider has no chain source; a real one reads its own node",
+      // One place builds the sentence, so a source cannot exist without a
+      // description of what trusting it means.
+      heightNote: heightNoteFor(heightSource),
       emission: observed.length === 0
         ? "nothing has been emitted, so nothing could land — the plan is real, the emission is a stand-in for the emitter"
         : "settled against the emissions presented",

@@ -89,12 +89,26 @@ client enforces and the rule the provider enforces are the same code rather than
 two implementations that agree today. `scripts/serve-provider.mjs` translates
 its verdict into a status code and nothing else.
 
-The provider also has to know what block the chain is at, and it may not have a
-way to find out. `--at <block>` pins it; without it the provider settles on the
-height the buyer asserts and labels the settlement `heightSource: "buyer"` with
-a note saying it was not verified. A provider that quietly accepted the buyer's
-number while implying it had checked would be claiming a verification it did not
-perform — which is the same class of error as a stale figure.
+The provider also has to know what block the chain is at, and **where that number
+comes from is a trust decision, not a detail.** The provider is the party that
+benefits from receiving a reveal early, so a provider that settles on a height
+the buyer supplied has made the interested party the only witness. Three
+arrangements, and the settlement records which one it used rather than implying a
+check it did not perform:
+
+| mode | how | `heightSource` | if it fails |
+|---|---|---|---|
+| `--at <block>` | pinned by the operator | `pinned` | refused — a typo does not fall through to the buyer's number |
+| `--verify` | read from the chain on every reveal | `provider` | **refused**, and it does not fall back |
+| neither | the buyer's own assertion | `buyer` | n/a — it is labelled unverified |
+
+The `--verify` row is the one worth reading twice. An operator who asked for a
+check and got a formality instead has been told something untrue about their own
+settlement — the same class of error as a stale figure, with a worse consequence,
+because the thing being handed over is a rung. So a failed read is a refusal.
+`--rpc <url>` narrows `--verify` to a single endpoint instead of the network's
+public list; `src/blockheight.mjs` holds the list and the read, shared with the
+client so the two cannot disagree about which chain they are asking.
 
 ## Step 2 is where the design lives: the split commitment
 
@@ -260,7 +274,7 @@ A failed settlement keeps its reason apart — `window-mismatch` versus
 | an order book | **not built.** Nothing lists orders or matches them. A provider is reached by URL |
 | a provider worth trusting | **not built.** The reference is loopback-only, with no TLS, no auth and no rate limiting. It also learns **when** each buyer transacts, which is the position being sold and belongs in a written policy |
 | on-chain verification | **not built.** Settlement here runs on a JSON file, not on Starknet |
-| a provider's own view of the chain height | **not built.** `--at` pins one by hand; reading it needs the same node the emitter does, so today a settlement is labelled `heightSource: "buyer"` and says the height was not verified |
+| a provider's own view of the chain height | **built** — `--verify` reads it from the public endpoints on every reveal, and refuses rather than falling back when the read fails. It does NOT need the emitter's local node; that turned out to be a separate thing |
 
 ## Traps paid for
 

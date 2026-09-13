@@ -154,7 +154,7 @@ First deploy takes a minute or two. Reload the page after that.
 ## Step 6 · Check it
 
 ```bash
-npm test             # 223 tests must pass
+npm test             # 243 tests must pass
 npm run verify:journey   # the four steps over real HTTP, with a spawned provider
 npm run measure      # prints M1, M3, anonymity sets, cost per bit
 npm run web          # dashboard at http://127.0.0.1:8080

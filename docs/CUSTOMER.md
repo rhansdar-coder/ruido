@@ -205,9 +205,9 @@ last one".
 | an order book | **not built.** Nothing lists orders or matches them; a provider is reached by URL |
 | a provider worth trusting | **not built.** Loopback, no TLS, no auth, no rate limiting — and it learns **when** each buyer transacts |
 | on-chain settlement | **not built.** Settlement runs on a JSON file, not on Starknet |
-| a provider's own view of the chain height | **not built.** `--at` pins one by hand. Without it the settlement is labelled `heightSource: "buyer"` and states that the height was not verified |
+| a provider's own view of the chain height | **live** — `--verify` reads it from the chain on every reveal, and **refuses** the settlement rather than falling back to the buyer's number when the read fails. It does not need the emitter's node; that was a separate thing |
 
-Nineteen rows, eleven live, one priced, seven not built — and every live one was
+Nineteen rows, twelve live, one priced, six not built — and every live one was
 built without a node, a chain, or a key. That is the point: **the customer's side
 of Ruido is finished and untested against reality at the same time**, because
 what was missing was never code.

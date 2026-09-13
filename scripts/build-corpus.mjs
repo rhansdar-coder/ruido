@@ -40,24 +40,20 @@ import {
   eventDefinitions,
 } from "../src/starknet-events.mjs";
 import { appendAll, blockRange } from "../src/collect.mjs";
+import { STARKNET_RPC } from "../src/blockheight.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const POOLS = {
   sepolia: {
-    rpcs: [
-      "https://starknet-sepolia-rpc.publicnode.com",
-      "https://starknet-sepolia.api.onfinality.io/public",
-      "https://starknet-sepolia-rpc.itrocket.net",
-    ],
+    // Imported, not copied. The same six URLs were written into this script, the
+    // block-time measurement and the reveal client; a public endpoint that
+    // rotates out has to be fixed in one place or the fix half-lands.
+    rpcs: STARKNET_RPC.sepolia,
     pool: "0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91",
   },
   mainnet: {
-    rpcs: [
-      "https://starknet-rpc.publicnode.com",
-      "https://starknet.api.onfinality.io/public",
-      "https://starknet-mainnet-rpc.itrocket.net",
-    ],
+    rpcs: STARKNET_RPC.mainnet,
     pool: "0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a",
   },
 };

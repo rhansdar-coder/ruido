@@ -35,6 +35,7 @@ import { readFile } from "node:fs/promises";
 
 import { parseReveal, serialiseReveal } from "../src/order.mjs";
 import { checkReveal, blocksUntilReveal } from "../src/reveal.mjs";
+import { readBlockHeight } from "../src/blockheight.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -47,20 +48,6 @@ const ORDER_FILE = arg("order", null);
 const PROVIDER = arg("provider", null)?.replace(/\/+$/, "") ?? null;
 const AT = arg("at", null);
 const CELL = arg("cell", null);
-
-/** Public read endpoints, the same ones the indexer uses. Rotated on failure. */
-const RPC = {
-  sepolia: [
-    "https://starknet-sepolia-rpc.publicnode.com",
-    "https://starknet-sepolia.api.onfinality.io/public",
-    "https://starknet-sepolia-rpc.itrocket.net",
-  ],
-  mainnet: [
-    "https://starknet-rpc.publicnode.com",
-    "https://starknet.api.onfinality.io/public",
-    "https://starknet-mainnet-rpc.itrocket.net",
-  ],
-};
 
 function die(message) {
   console.error(`\n  ${message}\n`);
@@ -114,34 +101,19 @@ if (!(cell > 0)) {
  *
  * Undefined is a legitimate answer here and is handled as a refusal by
  * `checkReveal`; swallowing the error and returning 0 would turn an unreachable
- * RPC into "the window closed long ago".
+ * RPC into "the window closed long ago". The read itself lives in
+ * `src/blockheight.mjs`, shared with the provider, because the list of public
+ * endpoints was previously copied into three scripts.
  */
-async function currentBlock() {
-  const endpoints = RPC[network] ?? [];
-  let lastError = null;
-  for (const rpc of endpoints) {
-    try {
-      const response = await fetch(rpc, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "starknet_blockNumber", params: [] }),
-        signal: AbortSignal.timeout(15000),
-      });
-      const text = await response.text();
-      if (text.trim().startsWith("<")) throw new Error("non-JSON response");
-      const body = JSON.parse(text);
-      if (body.error) throw new Error(body.error.message ?? "rpc error");
-      if (!Number.isInteger(body.result)) throw new Error(`not a block number: ${body.result}`);
-      return body.result;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  console.error(`\n  could not read the chain height from ${endpoints.length} endpoints: ${lastError?.message}`);
-  return undefined;
-}
-
-const atBlock = AT !== null ? Number(AT) : await currentBlock();
+const atBlock = AT !== null
+  ? Number(AT)
+  : await readBlockHeight({
+      network,
+      onFailure: ({ endpoints, error }) =>
+        console.error(
+          `\n  could not read the chain height from ${endpoints.length} endpoint(s): ${error?.message ?? `no endpoints configured for ${network}`}`,
+        ),
+    });
 if (AT !== null && !Number.isInteger(atBlock)) die(`--at must be a block number, got ${AT}`);
 
 const check = checkReveal(order, reveal, { network, atBlock });
@@ -242,7 +214,14 @@ try {
     body: JSON.stringify({ reveal: revealOnWire, atBlock, cell }),
   });
   settlement = await response.json();
-  if (!response.ok) die(`the reveal was refused (${response.status}): ${settlement.reason ?? settlement.error}`);
+  if (!response.ok) {
+    // Both lines when both are present: `error` names what happened and `reason`
+    // explains why, and a refusal needs the pair. A provider that could not read
+    // the chain says that in one field and says it will not fall back in the
+    // other, so printing only the second loses the cause.
+    const detail = [settlement.error, settlement.reason].filter(Boolean).join(" — ");
+    die(`the reveal was refused (${response.status}): ${detail}`);
+  }
 } catch (error) {
   die(`the reveal could not be delivered to ${PROVIDER}: ${error.message}`);
 }

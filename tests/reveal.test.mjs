@@ -35,7 +35,7 @@ import {
 } from "../src/order.mjs";
 import { providerTerms, acceptOrder, invoiceFor, markPaid, planDecoys, orderSeed } from "../src/provider.mjs";
 import { quote } from "../src/quote.mjs";
-import { blocksUntilReveal, checkReveal, windowHasClosed, admitReveal } from "../src/reveal.mjs";
+import { blocksUntilReveal, checkReveal, windowHasClosed, admitReveal, resolveHeight, heightNoteFor, HEIGHT_SOURCE } from "../src/reveal.mjs";
 
 const NETWORK = "sepolia";
 const CELL = 1.93;
@@ -283,7 +283,7 @@ test("the provider settles once the window has closed, and counts nothing that d
   assert.match(admitted.body.emission, /nothing has been emitted/);
 });
 
-test("the settlement records whether the height was verified or taken on trust", () => {
+test("the settlement records where the height came from, in words", () => {
   const p = provider();
   const at = p.window.to + 1;
   const base = {
@@ -295,17 +295,98 @@ test("the settlement records whether the height was verified or taken on trust",
     network: NETWORK,
   };
 
-  const trusted = admitReveal({ ...base, heightSource: "buyer" });
-  assert.equal(trusted.body.heightSource, "buyer");
-  assert.match(trusted.body.heightNote, /NOT verified/);
+  const notes = {};
+  for (const source of Object.values(HEIGHT_SOURCE)) {
+    const admitted = admitReveal({ ...base, heightSource: source });
+    assert.equal(admitted.body.heightSource, source);
+    notes[source] = admitted.body.heightNote;
+  }
 
-  const pinned = admitReveal({ ...base, heightSource: "provider" });
-  assert.equal(pinned.body.heightSource, "provider");
-  assert.match(pinned.body.heightNote, /own height/);
+  // The buyer's number is the weakest arrangement and has to admit it, because a
+  // provider that quietly stopped verifying must not keep printing the
+  // reassuring sentence.
+  assert.match(notes.buyer, /NOT verified/);
+  assert.match(notes.provider, /read from the chain/);
+  assert.match(notes.pinned, /--at/);
 
-  // Different strings, so a provider that quietly stopped reading its own node
-  // cannot keep printing the reassuring one.
-  assert.notEqual(trusted.body.heightNote, pinned.body.heightNote);
+  // Three sources, three sentences. A shared string would mean one of them was
+  // describing a check it did not perform — and "pinned by a human" is not the
+  // same claim as "read from the chain".
+  assert.equal(new Set(Object.values(notes)).size, 3);
+  assert.equal(heightNoteFor("pinned"), notes.pinned);
+});
+
+// --- where the height comes from, which is a question about trust -----------
+
+test("a pinned height is used as given, and the chain is not consulted", async () => {
+  let called = 0;
+  const resolved = await resolveHeight({
+    mode: HEIGHT_SOURCE.PINNED,
+    pinned: 14_865_300,
+    network: NETWORK,
+    read: async () => {
+      called += 1;
+      return 1;
+    },
+  });
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.atBlock, 14_865_300);
+  assert.equal(resolved.heightSource, "pinned");
+  assert.equal(called, 0, "a pinned height should not trigger a chain read");
+});
+
+test("a pinned height that is not a number is refused, not treated as unset", async () => {
+  // The dangerous alternative is to fall through to the buyer's number, which
+  // silently converts a typo in the operator's flag into an unverified
+  // settlement — with no error and no note.
+  const resolved = await resolveHeight({ mode: HEIGHT_SOURCE.PINNED, pinned: null, network: NETWORK });
+  assert.equal(resolved.ok, false);
+  assert.equal(resolved.status, 500);
+  assert.match(resolved.body.error, /--at/);
+});
+
+test("a verifying provider reads the height and ignores the buyer's", async () => {
+  const resolved = await resolveHeight({
+    mode: HEIGHT_SOURCE.PROVIDER,
+    network: NETWORK,
+    endpoints: ["stub"],
+    read: async () => 14_865_400,
+  });
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.atBlock, 14_865_400);
+  assert.equal(resolved.heightSource, "provider");
+});
+
+test("a verifying provider that cannot reach the chain REFUSES, and does not fall back", async () => {
+  // The whole point of --verify. Falling back to the buyer's number here would
+  // hand the settlement to the party that benefits from an early reveal, while
+  // the operator believes a check ran.
+  const resolved = await resolveHeight({
+    mode: HEIGHT_SOURCE.PROVIDER,
+    network: NETWORK,
+    endpoints: ["stub-a", "stub-b"],
+    read: async () => undefined,
+  });
+
+  assert.equal(resolved.ok, false);
+  assert.equal(resolved.status, 400);
+  assert.match(resolved.body.reason, /will not fall back/);
+  assert.deepEqual(resolved.body.endpoints, ["stub-a", "stub-b"]);
+});
+
+test("the buyer's mode asks for nothing and promises nothing", async () => {
+  const resolved = await resolveHeight({
+    mode: HEIGHT_SOURCE.BUYER,
+    network: NETWORK,
+    read: async () => {
+      throw new Error("the buyer's mode must not read the chain");
+    },
+  });
+  // `null` means "use the one in the request", which is what keeps the buyer's
+  // assertion a request rather than a measurement.
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.atBlock, null);
+  assert.equal(resolved.heightSource, "buyer");
 });
 
 test("a window proof sent where a reveal belongs is refused, not crashed on", () => {

@@ -12,15 +12,16 @@
 //
 //   node scripts/block-times.mjs
 
+import { STARKNET_RPC } from "../src/blockheight.mjs";
+
 const CHAINS = [
   {
     name: "STRK20 · Starknet mainnet",
     kind: "starknet",
-    rpcs: [
-      "https://starknet-rpc.publicnode.com",
-      "https://starknet.api.onfinality.io/public",
-      "https://starknet-mainnet-rpc.itrocket.net",
-    ],
+    // Imported rather than copied: this list also lives in the corpus builder
+    // and the reveal client, and one of the three going stale is a failure that
+    // shows up as a timeout rather than as an error.
+    rpcs: STARKNET_RPC.mainnet,
     spanBlocks: 20000,
   },
   {
