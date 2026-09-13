@@ -113,8 +113,15 @@ password.
 
 1. Your repo on GitHub → **Settings** → **Pages** (left sidebar)
 2. Under **Source**, choose **GitHub Actions** — not "Deploy from a branch"
-3. Done. The workflow in `.github/workflows/pages.yml` runs on every push to
-   `main` and publishes the dashboard.
+3. **Then trigger the workflow.** This step is not optional, and it is the one
+   everybody skips. Choosing the source only tells Pages *where* to look; it does
+   not deploy anything. If you have not pushed since turning it on, the site is
+   still a 404 and the only run you can see is an older one that failed for want
+   of the setting. Go to **Actions** → *Deploy dashboard to Pages* → **Run
+   workflow**, or re-run the failed run. One click.
+
+From then on the workflow runs on every push to `main` and publishes the
+dashboard.
 
 The workflow does not list the files itself. It calls `node scripts/build-site.mjs`
 — the same script Step 0 runs — so what you verified locally is byte-for-byte
@@ -194,9 +201,17 @@ git pull --rebase origin main
 git push -u origin main
 ```
 
-**Pages shows 404** → Check the Actions tab. If the workflow failed, the most
-likely cause is that Pages is still set to "Deploy from a branch" instead of
-"GitHub Actions".
+**Pages shows 404** → Two causes, and they look identical from the outside.
+
+*No deployment has run.* Enabling Pages does not deploy anything — the source
+setting only says where to look. If the only run in the Actions tab is older than
+the moment you enabled Pages, nothing has been deployed since. Go to **Actions** →
+*Deploy dashboard to Pages* → **Run workflow**.
+
+*A deployment ran and failed.* Open it and read which job failed. `deploy`
+failing while `test` and `build` are green means Pages was not enabled yet when
+it ran; fix the setting and re-run. If `test` itself is red, that is a real
+failure and nothing should be published — that is the check working.
 
 **The dashboard is blank** → You opened `index.html` by double-clicking. That
 will not work; ES modules cannot load from `file://`. Use `npm run web`, which
