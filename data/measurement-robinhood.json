@@ -1,0 +1,736 @@
+{
+  "kind": "evm",
+  "source": {
+    "chain": "robinhood",
+    "chainName": "Robinhood Chain",
+    "chainId": 4663,
+    "stack": "Arbitrum Orbit",
+    "chainNote": "Tokenized equities for retail. No shielding primitive; the ecosystem page lists TRM Labs under compliance and never mentions privacy.",
+    "rpc": "https://rpc.mainnet.chain.robinhood.com",
+    "corpusFetchedAt": "2026-09-12T00:54:03.778Z",
+    "headAtFetch": 60683124,
+    "wholeChainIndexed": false,
+    "coverageNote": "Public RPC sustains roughly 20 blocks/s with batching; these chains are tens of millions of blocks (Ethereum 26M, Robinhood Chain 60.7M, Arbitrum One 504M), which is weeks to years of scanning. This is a contiguous sampled window, not a census.",
+    "blocksMissing": 0,
+    "transactionsIndexed": 377416,
+    "systemTransactionsExcluded": 24168,
+    "suspiciousSystemCandidates": []
+  },
+  "measuredAt": "2026-09-12T01:33:40.042Z",
+  "window": {
+    "fromBlock": 60659125,
+    "toBlock": 60683124,
+    "blocks": 24000,
+    "spanSeconds": 2449,
+    "spanMinutes": 40.82,
+    "blockTimeSeconds": 0.10205,
+    "transactions": 377416,
+    "transactionsPerSecond": 154.11,
+    "transactionsPerDay": 13315126
+  },
+  "headline": {
+    "claim": "No shielded pool was detected on Robinhood Chain in the observed window.",
+    "measurement": "Within ±17 seconds a transaction sits among 2304.4 distinct senders. That number is not privacy: the effective anonymity set is 0 bits, because the sender is written in the transaction.",
+    "claimedBits": null,
+    "measuredBits": 0,
+    "effectiveBits": 0,
+    "nominalTimingCandidates": 2304.4,
+    "shieldedPoolDetected": false,
+    "detectedBy": null,
+    "shapeMatchedButRejected": 11
+  },
+  "identifiability": {
+    "measuredBits": 0,
+    "nominalTimingCandidates": 2304.4,
+    "reason": "The timing candidate set is a list of identified parties, not a list of suspects. Anonymity requires that the answer to 'who is this' be ambiguous. Here it is written in the transaction.",
+    "clauses": [
+      {
+        "claim": "The sender of every transaction is public.",
+        "consequence": "The adversary reads the answer instead of guessing it. Candidate set of size 1, by construction.",
+        "falsifiableBy": "Finding a transaction on this chain whose sender is not in the public block data."
+      },
+      {
+        "claim": "Addresses persist across transactions.",
+        "consequence": "One link deanonymises the entire history of that address.",
+        "falsifiableBy": "Observing addresses used once and never again, at scale."
+      },
+      {
+        "claim": "ERC-4337 carries a negligible share of transactions, so the fee payer is the user.",
+        "consequence": "With no paymaster in the path there is no separating layer between the identity and the transaction.",
+        "falsifiableBy": "A window in which EntryPoint traffic carries a meaningful share of transactions."
+      },
+      {
+        "claim": "A single operator sequences the chain first-come, first-served.",
+        "consequence": "The operator sees arrival order and, for accounts it serves, the identity behind them. Not observable from public data, so it is excluded from every number — which makes every number an upper bound.",
+        "falsifiableBy": "A decentralised sequencer set."
+      }
+    ],
+    "notMeasurableFromPublicData": [
+      "Whether the sequencer or block producer correlates arrival order with an identity.",
+      "Whether IP-level data links an address to a person.",
+      "Whether third-party monitoring clusters addresses off-chain."
+    ]
+  },
+  "timing": [
+    {
+      "windowSeconds": 1,
+      "matchedToStarknet": false,
+      "candidates": 333.5,
+      "median": 328,
+      "bits": 8.382,
+      "fractionAlone": 0
+    },
+    {
+      "windowSeconds": 10,
+      "matchedToStarknet": false,
+      "candidates": 1567.2,
+      "median": 1590.5,
+      "bits": 10.614,
+      "fractionAlone": 0
+    },
+    {
+      "windowSeconds": 17,
+      "matchedToStarknet": true,
+      "note": "Wall-clock equivalent of the published STRK20 window (±10 Starknet blocks at 1.702 s).",
+      "candidates": 2304.4,
+      "median": 2327.5,
+      "bits": 11.17,
+      "fractionAlone": 0
+    },
+    {
+      "windowSeconds": 60,
+      "matchedToStarknet": false,
+      "candidates": 5488.5,
+      "median": 5501,
+      "bits": 12.422,
+      "fractionAlone": 0
+    },
+    {
+      "windowSeconds": 300,
+      "matchedToStarknet": false,
+      "candidates": 15069.6,
+      "median": 15485.5,
+      "bits": 13.879,
+      "fractionAlone": 0
+    },
+    {
+      "windowSeconds": 600,
+      "matchedToStarknet": false,
+      "candidates": 22189.1,
+      "median": 23714,
+      "bits": 14.438,
+      "fractionAlone": 0
+    }
+  ],
+  "reuse": {
+    "distinctSenders": 37335,
+    "transactions": 377416,
+    "transactionsPerSender": 10.109,
+    "singleUseSenders": 13028,
+    "singleUseFraction": 0.3489,
+    "sendersForHalfOfActivity": 731,
+    "sendersForHalfOfActivityFraction": 0.0196
+  },
+  "concentration": {
+    "distinctTargets": 11510,
+    "shareTop1": 0.0947,
+    "shareTop10": 0.3902,
+    "shareTop100": 0.762,
+    "targetsFor80Percent": 140
+  },
+  "poolSignature": {
+    "valueTransfers": 79586,
+    "distinctValues": 35263,
+    "valuesAppearingOnce": 33590,
+    "valuesAppearingOnceFraction": 0.9526,
+    "top5ShareOfTransfers": 0.1604,
+    "valueSpaceRatio": 0.4431,
+    "thresholds": {
+      "top5ShareAbove": 0.6,
+      "valueSpaceRatioBelow": 0.1
+    },
+    "topValues": [
+      {
+        "wei": "1000000000000000",
+        "count": 3174
+      },
+      {
+        "wei": "100000000000000000",
+        "count": 2541
+      },
+      {
+        "wei": "10000000000000000",
+        "count": 2517
+      },
+      {
+        "wei": "50000000000000000",
+        "count": 2314
+      },
+      {
+        "wei": "20000000000000000",
+        "count": 2217
+      },
+      {
+        "wei": "5000000000000000",
+        "count": 1320
+      },
+      {
+        "wei": "500000000000000",
+        "count": 1202
+      },
+      {
+        "wei": "30000000000000000",
+        "count": 1003
+      },
+      {
+        "wei": "100000000000000",
+        "count": 879
+      },
+      {
+        "wei": "25000000000000000",
+        "count": 830
+      }
+    ],
+    "shieldedPoolSignaturePresent": false,
+    "verdict": "Value distribution is long-tailed with a large value space relative to the number of transfers. This is the signature of ordinary transfers, not of a mixer. No shielded pool was observed in this window."
+  },
+  "contractScan": {
+    "minTransfers": 50,
+    "contractsWithValueTransfers": 6280,
+    "contractsScanned": 111,
+    "valueTransfersConsidered": 79258,
+    "shapeMatches": [
+      {
+        "target": "0x225cc3ce7f60ac7f1e4f807abf212da02b70e4a0",
+        "transfers": 530,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0019,
+        "shapeMatches": true,
+        "distinctDepositors": 8,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 526.316
+      },
+      {
+        "target": "0xca75df55cc9c476db27a7375d1fc8e794cf80721",
+        "transfers": 256,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0039,
+        "shapeMatches": true,
+        "distinctDepositors": 160,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 256.41
+      },
+      {
+        "target": "0xca0e42c12dfd54d7dbd66ed8c4b602a52375fd84",
+        "transfers": 159,
+        "distinctValues": 3,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0189,
+        "shapeMatches": true,
+        "distinctDepositors": 36,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 52.91
+      },
+      {
+        "target": "0xda5494742e05ca4c1271df6fd515f89635c702fe",
+        "transfers": 120,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0083,
+        "shapeMatches": true,
+        "distinctDepositors": 72,
+        "singleActor": false,
+        "outboundTransfers": 10,
+        "oneSided": false,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 8,
+        "outflowValueSpaceRatio": 0.8,
+        "viablePoolCandidate": false,
+        "mixerScore": 120.482
+      },
+      {
+        "target": "0x5c811d91ef3463b4a320279b77634155b54ac301",
+        "transfers": 114,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0088,
+        "shapeMatches": true,
+        "distinctDepositors": 75,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 113.636
+      },
+      {
+        "target": "0x3c51e1c0bb64b2ad824a20b3fcb62ccdd0c91d56",
+        "transfers": 105,
+        "distinctValues": 2,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.019,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 52.632
+      },
+      {
+        "target": "0x02f36939a3126f8245276187b3edfac35bbf09fb",
+        "transfers": 94,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0106,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 94.34
+      },
+      {
+        "target": "0x8f6f0cb39fce61cc3493ba1c5ec1d50d6147eac3",
+        "transfers": 85,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0118,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 84.746
+      },
+      {
+        "target": "0x6e8395d33d7b165bc0afea7432bf7c16cd142b45",
+        "transfers": 71,
+        "distinctValues": 3,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0423,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 23.641
+      },
+      {
+        "target": "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e",
+        "transfers": 57,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0175,
+        "shapeMatches": true,
+        "distinctDepositors": 53,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 57.143
+      },
+      {
+        "target": "0xb3c3f1cd2fe93ab1fde56e9d84bee65f2fb61570",
+        "transfers": 57,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0175,
+        "shapeMatches": true,
+        "distinctDepositors": 16,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 57.143
+      }
+    ],
+    "viablePoolCandidates": [],
+    "rejectedByDefinition": [
+      {
+        "target": "0x225cc3ce7f60ac7f1e4f807abf212da02b70e4a0",
+        "transfers": 530,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0019,
+        "shapeMatches": true,
+        "distinctDepositors": 8,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 526.316
+      },
+      {
+        "target": "0xca75df55cc9c476db27a7375d1fc8e794cf80721",
+        "transfers": 256,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0039,
+        "shapeMatches": true,
+        "distinctDepositors": 160,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 256.41
+      },
+      {
+        "target": "0xca0e42c12dfd54d7dbd66ed8c4b602a52375fd84",
+        "transfers": 159,
+        "distinctValues": 3,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0189,
+        "shapeMatches": true,
+        "distinctDepositors": 36,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 52.91
+      },
+      {
+        "target": "0xda5494742e05ca4c1271df6fd515f89635c702fe",
+        "transfers": 120,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0083,
+        "shapeMatches": true,
+        "distinctDepositors": 72,
+        "singleActor": false,
+        "outboundTransfers": 10,
+        "oneSided": false,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 8,
+        "outflowValueSpaceRatio": 0.8,
+        "viablePoolCandidate": false,
+        "mixerScore": 120.482
+      },
+      {
+        "target": "0x5c811d91ef3463b4a320279b77634155b54ac301",
+        "transfers": 114,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0088,
+        "shapeMatches": true,
+        "distinctDepositors": 75,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 113.636
+      },
+      {
+        "target": "0x3c51e1c0bb64b2ad824a20b3fcb62ccdd0c91d56",
+        "transfers": 105,
+        "distinctValues": 2,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.019,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 52.632
+      },
+      {
+        "target": "0x02f36939a3126f8245276187b3edfac35bbf09fb",
+        "transfers": 94,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0106,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 94.34
+      },
+      {
+        "target": "0x8f6f0cb39fce61cc3493ba1c5ec1d50d6147eac3",
+        "transfers": 85,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0118,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 84.746
+      },
+      {
+        "target": "0x6e8395d33d7b165bc0afea7432bf7c16cd142b45",
+        "transfers": 71,
+        "distinctValues": 3,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0423,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 23.641
+      },
+      {
+        "target": "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e",
+        "transfers": 57,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0175,
+        "shapeMatches": true,
+        "distinctDepositors": 53,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 57.143
+      },
+      {
+        "target": "0xb3c3f1cd2fe93ab1fde56e9d84bee65f2fb61570",
+        "transfers": 57,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0175,
+        "shapeMatches": true,
+        "distinctDepositors": 16,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 57.143
+      }
+    ],
+    "closest": [
+      {
+        "target": "0x225cc3ce7f60ac7f1e4f807abf212da02b70e4a0",
+        "transfers": 530,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0019,
+        "shapeMatches": true,
+        "distinctDepositors": 8,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 526.316
+      },
+      {
+        "target": "0xca75df55cc9c476db27a7375d1fc8e794cf80721",
+        "transfers": 256,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0039,
+        "shapeMatches": true,
+        "distinctDepositors": 160,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 256.41
+      },
+      {
+        "target": "0xda5494742e05ca4c1271df6fd515f89635c702fe",
+        "transfers": 120,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0083,
+        "shapeMatches": true,
+        "distinctDepositors": 72,
+        "singleActor": false,
+        "outboundTransfers": 10,
+        "oneSided": false,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 8,
+        "outflowValueSpaceRatio": 0.8,
+        "viablePoolCandidate": false,
+        "mixerScore": 120.482
+      },
+      {
+        "target": "0x5c811d91ef3463b4a320279b77634155b54ac301",
+        "transfers": 114,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0088,
+        "shapeMatches": true,
+        "distinctDepositors": 75,
+        "singleActor": false,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 113.636
+      },
+      {
+        "target": "0x02f36939a3126f8245276187b3edfac35bbf09fb",
+        "transfers": 94,
+        "distinctValues": 1,
+        "top5ShareOfTransfers": 1,
+        "valueSpaceRatio": 0.0106,
+        "shapeMatches": true,
+        "distinctDepositors": 1,
+        "singleActor": true,
+        "outboundTransfers": 0,
+        "oneSided": true,
+        "outflowPoolShaped": false,
+        "outflowDistinctValues": 0,
+        "outflowValueSpaceRatio": null,
+        "viablePoolCandidate": false,
+        "mixerScore": 94.34
+      }
+    ],
+    "thresholds": {
+      "top5ShareAbove": 0.6,
+      "valueSpaceRatioBelow": 0.1
+    },
+    "conditions": [
+      "value shape: few fixed denominations, reused many times",
+      "more than one depositor",
+      "value flows both in and out",
+      "the outflow is pool-shaped too — it returns what it took"
+    ],
+    "verdict": "The value shape fired on 11 contract(s), and every one of them fails a condition a pool cannot fail: 0x225cc3ce7f60ac7f1e4f807abf212da02b70e4a0 (no outflow — value only goes in); 0xca75df55cc9c476db27a7375d1fc8e794cf80721 (no outflow — value only goes in); 0xca0e42c12dfd54d7dbd66ed8c4b602a52375fd84 (no outflow — value only goes in); 0xda5494742e05ca4c1271df6fd515f89635c702fe (outflows not pool-shaped — takes a fixed denomination, pays out 8 different amounts); 0x5c811d91ef3463b4a320279b77634155b54ac301 (no outflow — value only goes in); 0x3c51e1c0bb64b2ad824a20b3fcb62ccdd0c91d56 (one depositor — anonymity set of 1); 0x02f36939a3126f8245276187b3edfac35bbf09fb (one depositor — anonymity set of 1); 0x8f6f0cb39fce61cc3493ba1c5ec1d50d6147eac3 (one depositor — anonymity set of 1); 0x6e8395d33d7b165bc0afea7432bf7c16cd142b45 (one depositor — anonymity set of 1); 0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e (no outflow — value only goes in); 0xb3c3f1cd2fe93ab1fde56e9d84bee65f2fb61570 (no outflow — value only goes in). A single actor repeating an amount, a contract that only ever takes value in, or a fee collector sweeping irregular totals to a treasury all produce the mixer value shape without being a mixer. No viable pool candidate in this window."
+  },
+  "erc4337": {
+    "note": "Account abstraction is advertised by the chain. Measured, not assumed.",
+    "entrypoints": [
+      {
+        "name": "entrypoint-v0.7",
+        "txs": 1497
+      },
+      {
+        "name": "entrypoint-v0.6",
+        "txs": 213
+      }
+    ],
+    "total": 1710
+  },
+  "txTypes": {
+    "0": 50879,
+    "1": 285,
+    "2": 325707,
+    "4": 535,
+    "100": 3,
+    "104": 4,
+    "105": 3
+  },
+  "comparison": {
+    "note": "Same wall-clock window, same formula, two chains. The block counts differ by a factor of 16.7x, which is why the window is stated in seconds.",
+    "windowSeconds": 17,
+    "starknetMainnet": {
+      "blockTimeSeconds": 1.702,
+      "windowInBlocks": 10,
+      "windowSeconds": 17,
+      "model": "origins ±10",
+      "candidatesAll": 3.25,
+      "candidatesHumanScale": 3.38,
+      "measuredBits": 1.758
+    },
+    "thisChain": {
+      "key": "robinhood",
+      "name": "Robinhood Chain",
+      "blockTimeSeconds": 0.10205,
+      "windowInBlocks": 167,
+      "windowSeconds": 17,
+      "model": "distinct senders",
+      "candidates": 2304.4,
+      "measuredBits": 0
+    },
+    "conclusion": "Robinhood Chain has the larger candidate set and the smaller anonymity set, because the candidate set is not an anonymity set. A number only becomes privacy when the parties in it are indistinguishable from each other. On STRK20 they are notes. Here they are addresses, and addresses are names."
+  },
+  "caveats": [
+    "Sampled window, not a census: 24,000 contiguous blocks out of 60,683,124 (coverage 0.0003955).",
+    "Adversary sees only public block data from a public RPC. A real adversary also sees arrival order and, for accounts it serves, off-chain identity records.",
+    "Every figure is an upper bound on privacy. The notMeasurableFromPublicData list is why.",
+    "Contract identities were not resolved against an explorer. The shielded-pool test is behavioural, not nominal.",
+    "The chain-wide value-distribution test is a summary and cannot fire on a busy chain: one contract's behaviour is invisible against hundreds of thousands of transfers. The per-contract scan is the test that carries weight.",
+    "The value shape alone over-reports. Fixed-amount payment patterns — a sale at a fixed price, a batch payer, one bot repeating an amount, a fee collector sweeping a treasury — produce the same deposit shape as a pool. A detection therefore also requires more than one depositor, value flowing both ways, and a pool-shaped outflow. All three are definitional requirements of a pool, not tuned thresholds.",
+    "The value shape matched 11 contract(s) and none survived the definitional conditions. No pool was detected, and the shape matches are listed rather than hidden."
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "name": "ruido",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Measure and buy anonymity in shielded pools. Cover traffic, effective anonymity sets, and the numbers nobody publishes.",
+  "scripts": {
+    "measure": "node scripts/measure.mjs",
+    "quote": "node scripts/quote.mjs",
+    "buy": "node scripts/buy.mjs",
+    "serve:provider": "node scripts/serve-provider.mjs",
+    "blocktimes": "node scripts/block-times.mjs",
+    "corpus": "node scripts/build-corpus.mjs",
+    "corpus:mainnet": "node scripts/build-corpus.mjs --network mainnet --window 500000 --out data/corpus-mainnet.json",
+    "measure:corpus": "node scripts/measure-corpus.mjs",
+    "measure:mainnet": "node scripts/measure-corpus.mjs --corpus data/corpus-mainnet.json --out data/measurement-mainnet.json",
+    "verify:decode": "node scripts/verify-decode.mjs",
+    "verify:actions": "node scripts/verify-actions.mjs",
+    "recon:emitter": "node scripts/recon-emitter.mjs",
+    "verify:compile": "node scripts/verify-compile.mjs",
+    "verify:encode": "node scripts/verify-encode.mjs",
+    "check:screening": "node scripts/check-screening-scope.mjs",
+    "check:invokes": "node scripts/check-invoke-targets.mjs",
+    "check:abi": "node scripts/check-abi-types.mjs",
+    "dump:screening": "node scripts/dump-screening.mjs",
+    "check:packed": "node scripts/check-packed-value.mjs",
+    "rh:index": "node scripts/build-evm-corpus.mjs --chain robinhood --blocks 24000",
+    "rh:measure": "node scripts/measure-evm.mjs --chain robinhood",
+    "base:index": "node scripts/build-evm-corpus.mjs --chain base --blocks 3000",
+    "base:measure": "node scripts/measure-evm.mjs --chain base",
+    "eth:index": "node scripts/build-evm-corpus.mjs --chain ethereum --blocks 3000",
+    "eth:measure": "node scripts/measure-evm.mjs --chain ethereum",
+    "web": "node scripts/serve.mjs",
+    "shots": "node scripts/screenshots.mjs",
+    "site": "node scripts/build-site.mjs",
+    "site:check": "node scripts/build-site.mjs --check",
+    "test": "node --test tests/ruido.test.mjs tests/keccak.test.mjs tests/collect.test.mjs tests/starknet-events.test.mjs tests/denomination.test.mjs tests/actions.test.mjs tests/order.test.mjs tests/provider.test.mjs tests/site.test.mjs tests/dom-contract.test.mjs tests/robinhood.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

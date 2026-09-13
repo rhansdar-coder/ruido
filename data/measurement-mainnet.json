@@ -1,0 +1,360 @@
+{
+  "source": {
+    "network": "mainnet",
+    "pool": "0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a",
+    "corpusFetchedAt": "2026-09-12T02:26:08.768Z",
+    "complete": true,
+    "headAtFetch": 14736547,
+    "events": 125772,
+    "classes": 2
+  },
+  "measuredAt": "2026-09-12T03:01:20.063Z",
+  "pool": {
+    "notes": 32924,
+    "clusters": 25138,
+    "blockRange": {
+      "first": 9023083,
+      "last": 14726437,
+      "span": 5703354
+    },
+    "notesPerThousandBlocks": 5.773,
+    "medianClusterSize": 1,
+    "humanScaleNotes": 30319,
+    "botScaleNotes": 2605
+  },
+  "samples": 400,
+  "headline": {
+    "claim": "The pool holds 32,924 notes.",
+    "measurement": "A real note is indistinguishable from 3.38 others, on average, if the adversary knows which block it was created in to within 10 blocks.",
+    "claimedBits": 15.01,
+    "measuredBits": 1.758,
+    "claimedSet": 32924,
+    "measuredSet": 3.38,
+    "fractionAlone": 0.425
+  },
+  "models": [
+    {
+      "model": "nominal",
+      "description": "Every note in the pool. The number a project puts on a slide.",
+      "candidates": 32924,
+      "bits": 15.007
+    },
+    {
+      "model": "timing ±1",
+      "description": "Adversary knows when, to within 1 blocks.",
+      "candidates": 5.46,
+      "median": 2,
+      "bits": 2.45,
+      "fractionAlone": 0.465
+    },
+    {
+      "model": "timing ±10",
+      "description": "Adversary knows when, to within 10 blocks.",
+      "candidates": 7.83,
+      "median": 3,
+      "bits": 2.969,
+      "fractionAlone": 0.217
+    },
+    {
+      "model": "timing ±100",
+      "description": "Adversary knows when, to within 100 blocks.",
+      "candidates": 35.4,
+      "median": 19,
+      "bits": 5.145,
+      "fractionAlone": 0.063
+    },
+    {
+      "model": "timing ±1000",
+      "description": "Adversary knows when, to within 1000 blocks.",
+      "candidates": 257.81,
+      "median": 152.5,
+      "bits": 8.01,
+      "fractionAlone": 0.01
+    },
+    {
+      "model": "origins ±1",
+      "description": "Distinct funding transactions in a 1-block window.",
+      "candidates": 1.27,
+      "median": 1,
+      "bits": 0.35,
+      "fractionAlone": 0.78
+    },
+    {
+      "model": "origins ±10",
+      "description": "Distinct funding transactions in a 10-block window.",
+      "candidates": 3.25,
+      "median": 2,
+      "bits": 1.703,
+      "fractionAlone": 0.435
+    },
+    {
+      "model": "origins ±100",
+      "description": "Distinct funding transactions in a 100-block window.",
+      "candidates": 23.81,
+      "median": 12,
+      "bits": 4.574,
+      "fractionAlone": 0.12
+    },
+    {
+      "model": "origins ±1000",
+      "description": "Distinct funding transactions in a 1000-block window.",
+      "candidates": 202.53,
+      "median": 111.5,
+      "bits": 7.662,
+      "fractionAlone": 0.018
+    },
+    {
+      "model": "same transaction",
+      "description": "Adversary holds the funding transaction. Set is the cluster it minted.",
+      "candidates": 5.15,
+      "median": 1,
+      "bits": 2.365,
+      "fractionAlone": 0.618
+    }
+  ],
+  "humanScaleOnly": {
+    "note": "Transactions minting at most 6 notes. Excludes load generators.",
+    "notes": 30319,
+    "samples": 369,
+    "models": [
+      {
+        "model": "notes ±1",
+        "candidates": 1.69,
+        "median": 1,
+        "bits": 0.758,
+        "fractionAlone": 0.504
+      },
+      {
+        "model": "origins ±1",
+        "candidates": 1.28,
+        "median": 1,
+        "bits": 0.358,
+        "fractionAlone": 0.772
+      },
+      {
+        "model": "notes ±10",
+        "candidates": 4.07,
+        "median": 3,
+        "bits": 2.025,
+        "fractionAlone": 0.238
+      },
+      {
+        "model": "origins ±10",
+        "candidates": 3.38,
+        "median": 2,
+        "bits": 1.758,
+        "fractionAlone": 0.425
+      },
+      {
+        "model": "notes ±100",
+        "candidates": 28.72,
+        "median": 16,
+        "bits": 4.844,
+        "fractionAlone": 0.068
+      },
+      {
+        "model": "origins ±100",
+        "candidates": 25.03,
+        "median": 13,
+        "bits": 4.645,
+        "fractionAlone": 0.122
+      },
+      {
+        "model": "notes ±1000",
+        "candidates": 241.51,
+        "median": 141,
+        "bits": 7.916,
+        "fractionAlone": 0.011
+      },
+      {
+        "model": "origins ±1000",
+        "candidates": 212.32,
+        "median": 117,
+        "bits": 7.73,
+        "fractionAlone": 0.019
+      }
+    ]
+  },
+  "denomination": {
+    "note": "Amounts are public for a subset of notes, and only a subset. Two routes expose them: an open note publishes note_id and OpenNoteDeposited publishes the same note_id with an amount (exact join), or the note's transaction carries exactly one distinct deposit amount. A change note minted by spending an existing note has neither, so its amount is unobservable and is left unknown. EncNoteCreated.packed_value was tested and does not carry the amount. The candidate set is the observable same-denomination set: the notes an adversary can actually list. Change notes are not in it, and not because they were excluded for convenience — they are created by a spend rather than a deposit, so they are structurally distinguishable from a note whose amount is known.",
+    "coverage": {
+      "notes": 32924,
+      "withAmount": 18215,
+      "fractionWithAmount": 0.553,
+      "byRoute": {
+        "explicit": 1755,
+        "transaction": 16460,
+        "unknown": 14709
+      },
+      "distinctDenominations": 6362
+    },
+    "headline": {
+      "model": "amount",
+      "candidates": 72.36,
+      "bits": 6.177,
+      "fractionAlone": 0.268
+    },
+    "models": [
+      {
+        "model": "amount",
+        "description": "Adversary knows the amount. Set is every note in the pool of the same denomination.",
+        "candidates": 72.36,
+        "median": 19,
+        "bits": 6.177,
+        "fractionAlone": 0.268
+      },
+      {
+        "model": "timing+amount ±1",
+        "description": "Adversary knows the amount and the block to within 1.",
+        "candidates": 1.15,
+        "median": 1,
+        "bits": 0.202,
+        "fractionAlone": 0.863
+      },
+      {
+        "model": "timing+amount ±10",
+        "description": "Adversary knows the amount and the block to within 10.",
+        "candidates": 1.33,
+        "median": 1,
+        "bits": 0.411,
+        "fractionAlone": 0.785
+      },
+      {
+        "model": "timing+amount ±100",
+        "description": "Adversary knows the amount and the block to within 100.",
+        "candidates": 3.37,
+        "median": 1,
+        "bits": 1.751,
+        "fractionAlone": 0.57
+      },
+      {
+        "model": "timing+amount ±1000",
+        "description": "Adversary knows the amount and the block to within 1000.",
+        "candidates": 15.31,
+        "median": 2,
+        "bits": 3.936,
+        "fractionAlone": 0.438
+      }
+    ],
+    "humanScaleOnly": {
+      "note": "Amount-visible notes from transactions minting at most 6 notes.",
+      "notes": 18208,
+      "samples": 400,
+      "models": [
+        {
+          "model": "amount",
+          "description": "Adversary knows the amount. Set is every note in the pool of the same denomination.",
+          "candidates": 70.72,
+          "median": 17,
+          "bits": 6.144,
+          "fractionAlone": 0.27
+        },
+        {
+          "model": "timing+amount ±1",
+          "description": "Adversary knows the amount and the block to within 1.",
+          "candidates": 1.14,
+          "median": 1,
+          "bits": 0.189,
+          "fractionAlone": 0.868
+        },
+        {
+          "model": "timing+amount ±10",
+          "description": "Adversary knows the amount and the block to within 10.",
+          "candidates": 1.32,
+          "median": 1,
+          "bits": 0.401,
+          "fractionAlone": 0.79
+        },
+        {
+          "model": "timing+amount ±100",
+          "description": "Adversary knows the amount and the block to within 100.",
+          "candidates": 3.36,
+          "median": 1,
+          "bits": 1.75,
+          "fractionAlone": 0.57
+        },
+        {
+          "model": "timing+amount ±1000",
+          "description": "Adversary knows the amount and the block to within 1000.",
+          "candidates": 15.31,
+          "median": 2,
+          "bits": 3.937,
+          "fractionAlone": 0.443
+        }
+      ]
+    },
+    "amountHistogram": [
+      {
+        "token": "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+        "amount": "51000000",
+        "notes": 414
+      },
+      {
+        "token": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "amount": "3000000000000000000000",
+        "notes": 395
+      },
+      {
+        "token": "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+        "amount": "61000000",
+        "notes": 307
+      },
+      {
+        "token": "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+        "amount": "41000000",
+        "notes": 268
+      },
+      {
+        "token": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "amount": "2000000000000000000000",
+        "notes": 229
+      },
+      {
+        "token": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "amount": "10000000000000000000",
+        "notes": 228
+      },
+      {
+        "token": "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+        "amount": "1000000",
+        "notes": 201
+      },
+      {
+        "token": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "amount": "5000000000000000000",
+        "notes": 200
+      },
+      {
+        "token": "0x787150e306e6eae6e3f79dea881770e8bbff2c1b8eb490f969669ee945b3135",
+        "amount": "1585",
+        "notes": 188
+      },
+      {
+        "token": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "amount": "1500000000000000000000",
+        "notes": 176
+      },
+      {
+        "token": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "amount": "1760000000000000000000",
+        "notes": 166
+      },
+      {
+        "token": "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+        "amount": "60000000",
+        "notes": 158
+      }
+    ],
+    "caveats": [
+      "The axis covers only the notes whose amount is publicly derivable, so it describes that subset and not the pool as a whole.",
+      "A transaction carrying several distinct deposit amounts is treated as unknown, which understates the leak rather than overstating it.",
+      "Where it applies it can only shrink the candidate set, so the figures here are still upper bounds."
+    ]
+  },
+  "caveats": [
+    "Sepolia testnet. Volumes are not mainnet volumes and some traffic is load generation.",
+    "Adversary sees only public RPC data: block numbers, transaction hashes, and the amounts the pool's own events publish.",
+    "Denomination is measured on the 55.3% of notes whose amount is publicly derivable, not on the whole pool.",
+    "Every figure is an upper bound on privacy. A real adversary knows more."
+  ]
+}

@@ -1,0 +1,57 @@
+# Dependencies. Ruido itself has none, but a contributor's editor tooling might.
+node_modules/
+package-lock.json
+
+# Anything that could hold a key. Ruido never touches a pool key, and the
+# fastest way to break that promise is a stray file in a commit.
+*.key
+*.pem
+*.env
+.env.*
+secrets/
+credentials/
+
+# Local measurement output. Reports are reproducible from the seed, so they do
+# not need to be committed, and a stale one is worse than none.
+reports/
+*.local.json
+
+# The mainnet raw index is 24 MB — one `npm run corpus:mainnet` regenerates it
+# byte for byte from public RPC. The Sepolia index (4 MB) is committed because
+# it is small enough to read, and the published measurement cites it directly.
+# data/measurement.json and data/measurement-mainnet.json ARE committed: those
+# are the claims, and a claim you cannot read is not a claim.
+data/corpus-mainnet.json
+
+# EVM chain windows. These are transaction dumps and they are big: a window
+# carries a few hundred thousand transactions with an interned address table.
+# Regenerable with `npm run rh:index` / `base:index` / `eth:index`, and a stale
+# transaction dump is worse than none. The measurements ARE committed.
+data/corpus-robinhood.json
+data/corpus-robinhood-b.json
+data/corpus-base.json
+data/corpus-ethereum.json
+data/_smoke-rh.json
+
+# Chrome scratch profiles from the screenshot script. Never project content.
+.chrome-profile/
+.tmp-mobile/
+# The crop helpers are written by scripts/screenshots.mjs on every run. They
+# are harness, not site — the glob covers crop.html and crop-mobile.html, so a
+# second one cannot be forgotten and committed.
+shots/crop*.html
+
+# The assembled site. CI rebuilds it from scripts/build-site.mjs, and committing
+# it would mean two copies of every measurement that can disagree.
+_site/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*

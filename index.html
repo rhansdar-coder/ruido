@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruido — Private by measurement, not by claim</title>
+<meta name="description" content="Ruido indexes shielded pools, measures the anonymity set that survives an adversary, and sells cover traffic to widen it. RDO.">
+<link rel="icon" href="./assets/logo.svg" type="image/svg+xml">
+<!-- One stylesheet for both pages. It used to be inline here; the split into a landing page and an app page would have meant two copies of 360 lines that drift on the first style change. -->
+<link rel="stylesheet" href="./assets/site.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top">
+      <img src="./assets/logo.svg" alt="Ruido">
+      RUIDO<span class="tick">RDO</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#how">Protocol</a>
+      <a href="#compare">Compare</a>
+      <a href="#robinhood">Elsewhere</a>
+      <a href="#access">Access</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="btn btn-primary" href="./app.html">Launch App</a>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ================= HERO ================= -->
+<div class="hero">
+  <div class="noise-field" id="noise-field" aria-hidden="true"></div>
+  <div class="wrap hero-in">
+    <div class="hero-grid">
+      <div>
+        <span class="eyebrow"><i></i> Shielded pool infrastructure</span>
+        <h1 class="big">Private by<br><em>measurement</em>,<br>not by claim.</h1>
+        <p class="lede">
+          Every shielded pool quotes how many notes it holds. Almost none publish
+          how many you could actually be. Ruido indexes the pool, measures the set
+          that survives an adversary, and sells cover traffic to widen it.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary btn-lg" href="./app.html">Launch App</a>
+          <a class="btn btn-ghost btn-lg" href="./method.html">Read the methodology</a>
+        </div>
+      </div>
+
+      <!-- The evidence. Two numbers from the same index, side by side, and the
+           gap between them is the product.
+
+           This card used to BE the instrument: a network selector, a
+           claimed/effective pair and a button into the simulator. The instrument
+           has its own page now, and what stays here is the finding — the number,
+           not the tool that produced it. -->
+      <div class="card" id="hero-card">
+        <div class="card-head">
+          <span class="t">The finding</span>
+          <span class="pill" id="hero-net">STRK20 · Mainnet</span>
+        </div>
+
+        <div class="stats stats-stack">
+          <div class="stat"><div class="v" id="s-events">125,751</div><div class="k" id="s-events-k">pool events indexed</div></div>
+          <div class="stat"><div class="v" id="s-notes">32,920</div><div class="k" id="s-notes-k">notes in the pool</div></div>
+          <div class="stat"><div class="v" id="s-claimed">15.01</div><div class="k" id="s-claimed-k">bits claimed</div></div>
+          <div class="stat hl"><div class="v" id="s-bits">1.76</div><div class="k" id="s-bits-k">bits measured</div></div>
+        </div>
+
+        <!-- The gap, drawn. Its width is set from the two figures above in
+             app.js rather than typed here, because a hand-copied ratio is the
+             exact kind of number that goes stale without anyone noticing. -->
+        <div class="hero-gap">
+          <div class="hero-gap-bar"><i id="gap-claimed"></i></div>
+          <div class="hero-gap-bar"><i id="gap-measured"></i></div>
+          <div class="hero-gap-k">claimed against measured · same pool, same block range</div>
+        </div>
+
+        <p class="note" style="text-align:center">
+          <span id="hero-prefix">Measured from every event the deployed pool has emitted.</span>
+          <span id="s-stamp"></span>
+        </p>
+
+        <a class="btn btn-primary btn-block" href="./app.html">Open the instrument</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= HOW / NUMBERED ================= -->
+<section id="how">
+  <div class="wrap">
+    <span class="sec-eyebrow">Ruido infrastructure</span>
+    <h2 class="sec">Anonymity you can audit.</h2>
+    <p class="sec-lede">
+      Ruido turns fragmented pool data into one number, from chain indexing to
+      cover placement, and publishes the measurement even when it is bad.
+    </p>
+
+    <div class="num-grid">
+      <div class="num">
+        <div class="n">01 / INDEX</div>
+        <h3>Chain indexing</h3>
+        <p>Every event a pool emits, resolved against every class version it has
+        run. No ABI assumption, no sampling, no gaps.</p>
+      </div>
+      <div class="num">
+        <div class="n">02 / MEASURE</div>
+        <h3>Effective set</h3>
+        <p>What survives an adversary holding public data. Nominal size is kept
+        beside it only so the gap is visible.</p>
+      </div>
+      <div class="num">
+        <div class="n">03 / COVER</div>
+        <h3>Aimed cover</h3>
+        <p>Decoys placed in the exact cell an adversary looks in, not spread
+        across the pool where they buy you nothing. The measurement prices all
+        three positions: aimed, window-only, and blind.</p>
+      </div>
+      <div class="num">
+        <div class="n">04 / ATTEST</div>
+        <h3>Proof of placement</h3>
+        <p>Commit to a window and denomination, reveal after the fact, and let
+        anyone verify the cover was actually bought.</p>
+      </div>
+    </div>
+
+    <div class="stages">
+      <div class="stage">
+        <div class="n">01</div>
+        <h3>Index</h3>
+        <p>Pull the pool's full history. Cluster notes by the transaction that
+        minted them, because a shared origin is not an inference — it is on the
+        ledger.</p>
+      </div>
+      <div class="stage">
+        <div class="n">02</div>
+        <h3>Measure</h3>
+        <p>Apply adversary models one at a time: timing, origin, denomination,
+        linkage. Report every model, and mark the tightest one in red.</p>
+      </div>
+      <div class="stage">
+        <div class="n">03</div>
+        <h3>Cover</h3>
+        <p>Buy decoys into the cell that matters. The pool fee is the sybil
+        resistance: a fabricated decoy costs real STRK.</p>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ================= COMPARE ================= -->
+<section id="compare">
+  <div class="wrap">
+    <span class="sec-eyebrow">Why Ruido</span>
+    <h2 class="sec">The pools you use were not built to be measured.</h2>
+    <p class="sec-lede">
+      STRK20, Erebus, Tornado, Aztec: serious cryptography, and none of them
+      publish the second number. Here is what one measurement layer adds to all
+      of them.
+    </p>
+
+    <div class="t-wrap">
+      <div class="t-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th class="us">Ruido</th>
+              <th>STRK20 pool</th>
+              <th>Erebus</th>
+              <th>Tornado Cash</th>
+              <th>Aztec</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="f">States the nominal / effective distinction</td>
+              <td class="us"><span class="y">✓</span></td>
+              <td><span class="y">✓</span></td><td><span class="y">✓</span></td>
+              <td><span class="y">✓</span></td><td><span class="y">✓</span></td>
+            </tr>
+            <tr>
+              <td class="f">Publishes a measured effective set</td>
+              <td class="us"><span class="y">✓</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+            </tr>
+            <tr>
+              <td class="f">Measured from live chain data</td>
+              <td class="us"><span class="y">✓</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+            </tr>
+            <tr>
+              <td class="f">Cover traffic, protocol-agnostic</td>
+              <td class="us"><span class="y">✓</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+            </tr>
+            <tr>
+              <td class="f">Aimed placement, not blind</td>
+              <td class="us"><span class="y">✓</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+            </tr>
+            <tr>
+              <td class="f">Sybil-resistant decoys (fee-funded)</td>
+              <td class="us"><span class="y">✓</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+            </tr>
+            <tr>
+              <td class="f">Proof of cover placement</td>
+              <td class="us"><span class="y">✓</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+            </tr>
+            <tr>
+              <td class="f">Zero dependencies, fully reproducible</td>
+              <td class="us"><span class="y">✓</span></td>
+              <td><span class="n">—</span></td><td><span class="n">✗</span></td>
+              <td><span class="n">✗</span></td><td><span class="n">✗</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="t-foot">
+        Ruido rows describe this repository as built. The other columns describe
+        each project's own published claims and public documentation, not a
+        judgment of their cryptography — every pool above does real work.
+        The point is the missing measurement, not a missing proof system.
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ================= ELSEWHERE: ROBINHOOD CHAIN ================= -->
+<!--
+  This section exists because a measurement shop that only ever measures the
+  thing it likes is not a measurement shop. Robinhood Chain has no shielded
+  pool and claims none, so there is nothing here to flatter and nothing to
+  attack. What it tests is whether our method survives a chain where the
+  nominal/effective distinction has no note set to bite on.
+-->
+<section id="robinhood">
+  <div class="wrap">
+    <span class="sec-eyebrow" id="rh-eyebrow">Same meter, different chain</span>
+    <h2 class="sec" id="rh-title">We pointed the meter at a chain that has no shielded pool.</h2>
+    <p class="sec-lede" id="rh-lede">
+      Robinhood Chain is an Arbitrum Orbit L2, Chain ID 4663, marketed to 28
+      million retail clients for 24/7 tokenized equities. It has no privacy
+      layer and does not claim one, so the honest finding is not that it hides
+      you badly — it is that the question our meter asks has no candidates here.
+      The sender is written in the transaction.
+    </p>
+
+    <!-- Which chain the finding is about.
+
+         The landing carries two readings and they come from different files:
+         the hero states STRK20 mainnet and this section states whichever chain
+         is selected here. They cannot share a selector, because one selector
+         cannot hold two selections — reusing the meter's would have made this
+         section overwrite the hero with Robinhood's numbers. -->
+    <div class="find-ctrl">
+      <label for="find-select">Chain under the meter</label>
+      <select id="find-select" class="net-select">
+        <option value="robinhood">Robinhood Chain · 4663</option>
+        <option value="base">Base · 8453</option>
+        <option value="ethereum">Ethereum · 1</option>
+      </select>
+    </div>
+
+    <div class="stats" style="margin-bottom:34px">
+      <div class="stat"><div class="v" id="rh-tx">—</div><div class="k">transactions indexed</div></div>
+      <div class="stat"><div class="v" id="rh-blocktime">0.102</div><div class="k">seconds per block</div></div>
+      <div class="stat"><div class="v" id="rh-senders">—</div><div class="k">distinct senders</div></div>
+      <div class="stat hl"><div class="v" id="rh-bits">0.00</div><div class="k">bits, effective</div></div>
+    </div>
+
+    <div class="t-wrap">
+      <div class="t-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Timing window</th>
+              <th id="rh-timing-head">Candidates (Robinhood Chain)</th>
+              <th>Median</th>
+              <th>Bits</th>
+              <th>Alone</th>
+            </tr>
+          </thead>
+          <tbody id="rh-timing">
+            <tr><td class="f">±17 s</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="t-foot" id="rh-timing-foot">
+        Windows are in <b>seconds</b>, not blocks. Starknet produces a block every
+        1.702 s and Robinhood Chain every 0.102 s, so a shared "±10 blocks"
+        column would compare 17 seconds against 1. <b>±17 s is the exact
+        wall-clock equivalent</b> of the STRK20 window we published, which is
+        what makes the next table a comparison rather than a coincidence.
+      </div>
+    </div>
+
+    <div class="t-wrap" style="margin-top:26px">
+      <div class="t-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>At the same ±17 s window</th>
+              <th>STRK20 · Mainnet</th>
+              <th id="rh-cmp-chain">Robinhood Chain</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="f">Block time</td>
+              <td>1.702 s</td>
+              <td id="rh-cmp-blocktime">0.102 s</td>
+            </tr>
+            <tr>
+              <td class="f">Window in blocks</td>
+              <td>±10</td>
+              <td id="rh-window-blocks">±167</td>
+            </tr>
+            <tr>
+              <td class="f">Candidate set</td>
+              <td id="rh-cmp-stark">—</td>
+              <td id="rh-cmp-rh">—</td>
+            </tr>
+            <tr>
+              <td class="f">Effective anonymity</td>
+              <td id="rh-cmp-stark-bits">—</td>
+              <td class="us"><b id="rh-cmp-rh-bits">0 bits</b></td>
+            </tr>
+            <tr>
+              <td class="f">What the candidates are</td>
+              <td>unlinkable notes</td>
+              <td>addresses, in the clear</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="t-foot" id="rh-cmp-foot">
+        Robinhood Chain has the <b>larger</b> candidate set and the <b>smaller</b>
+        anonymity set. Both statements are true at once because the candidate set
+        is not an anonymity set. A number only becomes privacy when the parties
+        inside it are indistinguishable from each other. On STRK20 they are
+        notes. Here they are addresses, and addresses are names.
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-top:26px">
+      <div class="card">
+        <div class="card-head"><span class="t">Why the big number is worth nothing</span></div>
+        <div id="rh-clauses"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="t">What we could and could not measure</span></div>
+        <div id="rh-facts"></div>
+        <p class="note" id="rh-stamp"></p>
+      </div>
+    </div>
+
+    <div class="t-wrap" style="margin-top:26px">
+      <div class="t-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Behavioural test, whole chain</th>
+              <th>Observed</th>
+              <th>Mixer would read</th>
+            </tr>
+          </thead>
+          <tbody id="rh-pooltest">
+            <tr><td class="f">Value transfers</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="t-foot">
+        This table is the <b>whole-chain</b> summary, and on a busy chain it can
+        never fire: one contract's behaviour is invisible against hundreds of
+        thousands of transfers. It is here because it is the number the first
+        version of the test published, and because it is what shows why the test
+        had to change. <span id="rh-poolverdict"></span>
+      </div>
+    </div>
+
+    <div class="t-wrap" style="margin-top:26px">
+      <div class="t-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Behavioural test, per contract</th>
+              <th>Observed</th>
+              <th>A pool would read</th>
+            </tr>
+          </thead>
+          <tbody id="rh-contracttest">
+            <tr><td class="f">Contracts scanned</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="t-foot">
+        A mixer is a contract, not a chain, so this is the test that counts. But
+        the value shape alone is not enough, and we know that because we ran it:
+        it fired on contracts that turned out to be fixed-amount payment
+        patterns. A detection therefore also requires more than one depositor,
+        value flowing both ways, and a <b>pool-shaped outflow</b> — a pool
+        returns the denominations it took, while a fee collector takes a fixed
+        micro-amount and sweeps the balance to a treasury in one irregular lump.
+        <div id="rh-contractverdict" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div class="t-wrap" style="margin-top:26px">
+      <div class="t-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th id="rh-matches-head">Every contract the value shape fired on</th>
+              <th>Transfers</th>
+              <th>Value ratio</th>
+              <th>Depositors</th>
+              <th>Out</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody id="rh-matches">
+            <tr><td class="f">—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="t-foot">
+        Nothing is hidden by the extra conditions: every contract the value shape
+        fired on is listed here with the reason it was or was not accepted. The
+        gap between the two counts is the finding.
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ================= ACCESS ================= -->
+<section id="access">
+  <div class="wrap">
+    <span class="sec-eyebrow">Access</span>
+    <h2 class="sec">Six ways in. None of them touch your key.</h2>
+    <p class="sec-lede">
+      Ruido is not a wallet and not a mixer. It reads public chain data, and it
+      writes cover through an account you already control. The instrument is its own page; these are the
+      entry points into it.
+    </p>
+
+    <div class="acc-grid">
+      <div class="acc-c">
+        <div class="acc-h"><span class="acc-n">01</span><span class="acc-t">Read</span></div>
+        <h3>Public RPC</h3>
+        <p>The meter is the read path. It pulls the pool's event log from
+        public endpoints, resolves it against every class version the pool has
+        run, and measures the set that survives an adversary. No account, no key,
+        no allowlist — anyone can recompute it and argue with it.</p>
+        <div class="acc-ms">
+          <div class="acc-m"><span>Auth</span><span class="live">none</span></div>
+          <div class="acc-m"><span>Cost</span><span class="live">free</span></div>
+          <div class="acc-m"><span>Status</span><span class="live">live</span></div>
+          <div class="acc-m"><span>Entry</span><span>npm run measure</span></div>
+        </div>
+      </div>
+
+      <div class="acc-c">
+        <div class="acc-h"><span class="acc-n">02</span><span class="acc-t">Compile</span></div>
+        <h3>Throwaway key</h3>
+        <p>An <code>apply_actions</code> call can be built and executed against a
+        public RPC with a key that is generated, never funded and never
+        registered. That is how the emitter's interface is verified in this
+        repository. The viewing key travels inside the calldata, so it has to be
+        one you would be willing to publish anyway.</p>
+        <div class="acc-ms">
+          <div class="acc-m"><span>Auth</span><span class="live">throwaway scalar</span></div>
+          <div class="acc-m"><span>Cost</span><span class="live">free</span></div>
+          <div class="acc-m"><span>Status</span><span class="live">live</span></div>
+          <div class="acc-m"><span>Entry</span><span>npm run verify:compile</span></div>
+        </div>
+      </div>
+
+      <div class="acc-c">
+        <div class="acc-h"><span class="acc-n">03</span><span class="acc-t">Emit</span></div>
+        <h3>Funded account + local node</h3>
+        <p>Writing real cover means signing with a real viewing key, and that key
+        must not reach a third-party RPC. So the emitter talks to a Juno node on
+        loopback instead. The node is a Compose stack pinned by digest, and it
+        refuses to serve a chain it was not built for.</p>
+        <div class="acc-ms">
+          <div class="acc-m"><span>Auth</span><span class="needs">funded Starknet account</span></div>
+          <div class="acc-m"><span>Cost</span><span class="needs">pool fee · 2 STRK on Sepolia</span></div>
+          <div class="acc-m"><span>Status</span><span class="needs">needs a node</span></div>
+          <div class="acc-m"><span>Entry</span><span>erebus-ops-sepolia</span></div>
+        </div>
+      </div>
+
+      <div class="acc-c">
+        <div class="acc-h"><span class="acc-n">04</span><span class="acc-t">Order</span></div>
+        <h3>Commit to a cell</h3>
+        <p>The buyer asks for <b>bits</b>, not decoys, and gets back a quote and
+        two commitments: one to the window, which the provider is given so it can
+        emit in time, and one to the denomination, which it never sees. Splitting
+        them is what makes withholding the amount possible at all — a single
+        commitment cannot open one half without opening the other.</p>
+        <div class="acc-ms">
+          <div class="acc-m"><span>Auth</span><span class="live">none</span></div>
+          <div class="acc-m"><span>Cost</span><span class="live">free</span></div>
+          <div class="acc-m"><span>Status</span><span class="live">live</span></div>
+          <div class="acc-m"><span>Entry</span><span>npm run quote</span></div>
+        </div>
+      </div>
+
+      <div class="acc-c">
+        <div class="acc-h"><span class="acc-n">05</span><span class="acc-t">Connect</span></div>
+        <h3>Buy it from a provider</h3>
+        <p>Cover is a service, not a feature of this page. The buyer's client asks
+        a provider for its terms, prices the order against the ladder the provider
+        actually runs, and sends the order with the <b>window</b> half of the
+        reveal and never the denomination. The provider comes back with an
+        invoice. What it learns is the window — that is the position being sold:
+        it knows <b>when</b>, not how much. A reference provider and its client
+        are both in the repository, and the whole exchange is tested without a
+        chain.</p>
+        <div class="acc-ms">
+          <div class="acc-m"><span>Auth</span><span class="live">none — an order, not a signature</span></div>
+          <div class="acc-m"><span>Cost</span><span class="needs">the invoice · 190 STRK for 3 bits</span></div>
+          <div class="acc-m"><span>Status</span><span class="needs">live offline · emission needs a node</span></div>
+          <div class="acc-m"><span>Entry</span><span>npm run buy</span></div>
+        </div>
+      </div>
+
+      <div class="acc-c">
+        <div class="acc-h"><span class="acc-n">06</span><span class="acc-t">Verify</span></div>
+        <h3>Anyone, after the reveal</h3>
+        <p>The buyer publishes both preimages once the window closes, and anyone
+        can recompute the commitments and count the decoys that landed in the
+        cell. Settlement also refuses to pay twice for the same decoy — windows
+        overlap, so a decoy in one buyer's cell is usually in another's, and
+        without a first-claim rule one batch can be sold to every buyer who asks.</p>
+        <div class="acc-ms">
+          <div class="acc-m"><span>Auth</span><span class="live">none</span></div>
+          <div class="acc-m"><span>Cost</span><span class="live">free</span></div>
+          <div class="acc-m"><span>Status</span><span class="live">live</span></div>
+          <div class="acc-m"><span>Runs on</span><span class="needs">a JSON file, not Starknet</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-no">
+      <h3>What is deliberately not an entry point</h3>
+      <ul>
+        <li><b>No wallet connection.</b> Neither page ever asks for a signature
+        or sends a transaction. The RDO panel is a calculator.</li>
+        <li><b>No deposit, no custody.</b> Ruido never holds funds and never
+        touches a pool key, so there is no balance sitting here to drain.</li>
+        <li><b>No mixing.</b> Decoys are ordinary <code>apply_actions</code>
+        calls. The pool does the shielding; Ruido only widens the set you were
+        already hiding in.</li>
+        <li><b>No API key.</b> Every figure is reproducible from public RPC, so a
+        reader can recompute it without asking us for access.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+<!-- ================= WHO ================= -->
+<section>
+  <div class="wrap">
+    <span class="sec-eyebrow">Who this is for</span>
+    <h2 class="sec">Built for people who need the number.</h2>
+    <div class="who">
+      <div class="who-c">
+        <div class="role">Traders &amp; desks</div>
+        <p>You already route size through shielded pools. Ruido tells you
+        whether the route is hiding anything this week, and sells you cover in
+        the window where you actually transact.</p>
+      </div>
+      <div class="who-c">
+        <div class="role">Treasuries</div>
+        <p>Rebalancing is public the moment it touches a pool. Measure the leak
+        before the move, buy cover for the block range you will use, and prove
+        afterwards that it was placed.</p>
+      </div>
+      <div class="who-c">
+        <div class="role">Researchers</div>
+        <p>The corpus is reproducible from public RPC with no API key and no
+        dependency tree. Argue with the measurement; that is what it is for.</p>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ================= FAQ ================= -->
+<section id="faq">
+  <div class="wrap narrow">
+    <span class="sec-eyebrow">Questions</span>
+    <h2 class="sec">Before you trust the number.</h2>
+
+    <div class="faq">
+      <details open>
+        <summary>What exactly is "effective anonymity"?</summary>
+        <p>The count of notes that are still consistent with everything an
+        adversary knows after they apply it. A pool of 8,322 notes sounds like
+        13 bits. If the adversary knows the block, 93.4% of notes in the pool we
+        measured have no other candidate origin at all, which is 0.15 bits.</p>
+      </details>
+      <details>
+        <summary>Is the pool broken?</summary>
+        <p>No. The STRK20 pool does what it claims: it hides what a note is
+        worth and who spends it. It does not hide when the note was created,
+        because creation is an on-chain event. At 1.25 notes per thousand
+        blocks, "when" is close to a unique identifier.</p>
+      </details>
+      <details>
+        <summary>Can cover traffic fix this?</summary>
+        <p>Partly, and only in the dimension it targets. Cover raises the
+        candidate count for a timing adversary. It cannot fix a protocol-level
+        leak: if a pool publishes both counterparties when a channel opens, no
+        amount of traffic hides that relationship.</p>
+      </details>
+      <details>
+        <summary>Why is aimed cover so much cheaper than blind cover?</summary>
+        <p>Blind cover spreads decoys across every block and denomination, so
+        most of them land where the adversary is not looking. Measured on
+        200,000 decoys, <b>1 in 1,709</b> lands in the cell that will be
+        searched, against <b>1 in 7</b> for window-only and <b>1 in 1</b> for
+        aimed. Six decoys in seven land on a rung the adversary does not care
+        about, and of the seventh only 1 in 238 lands in the window — so blind
+        cover is the same product at roughly 1/1,700th the yield.</p>
+        <p>Between the two aimed positions the gap is the interesting one, and it
+        has an exact answer. For the same anonymity, withholding the
+        denomination costs <b>the ladder width</b> — 7× on a 7-rung ladder —
+        because hiding which rung is yours means emitting all of them. Three bits
+        takes 14 decoys aimed and 95 window-only. At the same budget instead it
+        reads 3.5× at ten decoys, and both numbers are true: they answer
+        different questions. The timing is not a secret a buyer can keep — cover
+        has to land before the spend — so the denomination is the only axis that
+        can be withheld.</p>
+      </details>
+      <details>
+        <summary>Which network is this, and did mainnet change the answer?</summary>
+        <p>Both, and yes — it broke our prediction. We expected mainnet to read
+        <em>worse</em> than Sepolia because a quieter pool has fewer notes to
+        hide among. It reads better: 1.76 bits on mainnet against 0.15 on
+        Sepolia, because mainnet is 4.6× denser at 5.77 notes per thousand
+        blocks versus 1.25. Testnet is not a scaled-down mainnet; it is a
+        different regime, and we were wrong to assume otherwise. Both
+        measurements ship in this repository and the instrument's network
+        switch flips between them.</p>
+      </details>
+      <details>
+        <summary>Is RDO an investment?</summary>
+        <p>No. It is a fee-discount token for a service. It carries no claim on
+        revenue, no governance rights over the pool, and no emissions to
+        holders. Token designs that look like securities are a legal problem,
+        not a feature — read docs/TOKEN.md before treating it as anything else.</p>
+      </details>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+    <a class="brand" href="./index.html">
+      <img src="./assets/logo.svg" alt="Ruido">
+      RUIDO<span class="tick">RDO</span>
+    </a>
+
+      <div class="foot-links">
+        <a href="#how">Protocol</a>
+        <a href="#compare">Compare</a>
+        <a href="#robinhood">Elsewhere</a>
+        <a href="#access">Access</a>
+        <a href="#faq">FAQ</a>
+        <a href="./app.html">The instrument</a>
+      </div>
+    </div>
+    <p class="legal">
+      Ruido is measurement software, not a custodian, an exchange, or a mixing
+      service. It never holds funds and never touches a pool key. Every figure on
+      this page is reproducible from public RPC. Nothing here is legal, financial,
+      or investment advice. Check the law where you live before you deploy,
+      hold, or issue a token.
+    </p>
+  </div>
+</footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

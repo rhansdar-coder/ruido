@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruido — The instrument</title>
+<meta name="description" content="The Ruido meter: the nominal and the effective anonymity set of a shielded pool, and what cover traffic costs per bit.">
+<link rel="icon" href="./assets/logo.svg" type="image/svg+xml">
+<!-- One stylesheet for both pages. It used to be inline here; the split into a landing page and an app page would have meant two copies of 360 lines that drift on the first style change. -->
+<link rel="stylesheet" href="./assets/site.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="./index.html">
+      <img src="./assets/logo.svg" alt="Ruido">
+      RUIDO<span class="tick">RDO</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#meter">Meter</a>
+      <a href="#sim">Simulator</a>
+      <a href="#rdo">RDO</a>
+      <a href="./index.html#how">Protocol</a>
+      <a href="./index.html#access">Access</a>
+      <a href="./index.html#faq">FAQ</a>
+    </nav>
+    <a class="btn btn-primary" href="./index.html">Back to the site</a>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ================= THE METER ================= -->
+<!-- The instrument used to open the landing page, under the headline. It opens
+     its own page now, because a control panel above the argument asks a visitor
+     to operate something before they know what it is for. -->
+<section id="meter" class="app-first">
+  <div class="wrap">
+    <span class="sec-eyebrow">The instrument</span>
+    <h2 class="sec">How many notes could you be?</h2>
+    <p class="sec-lede">
+      Two numbers, and the gap between them is the product. <b>Claimed</b> is the
+      set the pool advertises. <b>Effective</b> is the set that survives an
+      adversary who knows the block and reads a public RPC. Ruido measures the
+      second, and sells cover traffic to widen it.
+    </p>
+    <div class="app-panel">
+      <div class="card" id="measure">
+        <div class="card-head">
+          <span class="t">Ruido Meter</span>
+          <select id="net-select" class="net-select" aria-label="Network">
+            <option value="mainnet">STRK20 · Mainnet</option>
+            <option value="sepolia">STRK20 · Sepolia</option>
+            <option value="robinhood">Robinhood Chain · 4663</option>
+            <option value="base">Base · 8453</option>
+            <option value="ethereum">Ethereum · 1</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <div class="lab"><span>Claimed</span><span>nominal set</span></div>
+          <div class="row">
+            <span class="amt" id="c-set">32,920</span>
+            <span class="unit">notes</span>
+          </div>
+          <div class="sub" id="c-bits">15.01 bits · log2 of pool size</div>
+        </div>
+
+        <div class="swap-div"><span>▼</span></div>
+
+        <div class="field bad">
+          <div class="lab"><span>Effective</span><span id="m-model">origins ±10</span></div>
+          <div class="row">
+            <span class="amt" id="m-set">3.38</span>
+            <span class="unit">candidates</span>
+          </div>
+          <div class="sub" id="m-bits">1.76 bits · 42.5% of notes are alone</div>
+        </div>
+
+        <div class="assump">
+          <span>Adversary knows</span>
+          <span id="assump-body"><b>block ±10</b> · public RPC only</span>
+        </div>
+        <button class="btn btn-primary btn-block" id="to-sim">Model cover traffic</button>
+        <p class="note" style="text-align:center">
+          <span id="fetch-prefix">Measured from every event the deployed pool has emitted.</span>
+          <span id="fetch-stamp"></span>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SIMULATOR ================= -->
+<section id="sim">
+  <div class="wrap">
+    <span class="sec-eyebrow">Cover simulator</span>
+    <h2 class="sec">What does it cost to buy a bit?</h2>
+    <p class="sec-lede">
+      A calibrated model, not a promise. Change the parameters and watch the
+      price of anonymity move.
+    </p>
+    <p class="note" id="sim-note" style="display:none"></p>
+
+    <div class="sim">
+      <div>
+        <div class="panel">
+          <h3>Parameters</h3>
+          <label for="pool">Pool size (notes)</label>
+          <input id="pool" type="number" value="8322" min="10" step="100">
+
+          <label for="blocks">Blocks of history</label>
+          <input id="blocks" type="number" value="6641829" min="10" step="1000">
+
+          <label for="window">Adversary timing window (± blocks)</label>
+          <input id="window" type="number" value="10" min="1" step="1">
+
+          <label for="network">Network</label>
+          <select id="network">
+            <option value="sepolia">Sepolia · 2 STRK per call</option>
+            <option value="mainnet">Mainnet · 6 STRK per call</option>
+          </select>
+
+          <label for="strategy">Cover strategy</label>
+          <select id="strategy">
+            <option value="none">None (baseline)</option>
+            <option value="uniform" selected>Blind — public good</option>
+            <option value="window">Window-only — knows when, not how much</option>
+            <option value="targeted">Aimed — knows both</option>
+          </select>
+
+          <label for="decoys">Decoys purchased</label>
+          <input id="decoys" type="number" value="100" min="0" step="10">
+
+          <label for="seed">Seed (reproducibility)</label>
+          <input id="seed" type="number" value="20260911">
+
+          <button class="btn btn-primary btn-block" id="run" style="margin-top:20px">Run measurement</button>
+        </div>
+
+        <div class="panel warn-box">
+          <h3 style="margin-bottom:8px">Read this first</h3>
+          <p class="note" style="margin-top:0">
+            <b>Bits</b> is log2 of the candidate set. One more bit doubles the
+            number of notes you could be. Under one bit, the adversary is
+            guessing between you and one other note.
+          </p>
+          <p class="note">
+            <b>Blind</b> is averaged over the whole pool because it helps
+            everyone a little. <b>Window-only</b> and <b>aimed</b> are measured
+            on the buyer's note, because that is the only note they help. Switch
+            between the three at a fixed decoy count and watch the cost per bit:
+            the gap between them is the price of what the provider is told.
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel">
+          <h3>Result <span class="pill" id="pill">model: all</span></h3>
+          <div class="kv"><span>Effective set, before</span><span id="before">—</span></div>
+          <div class="kv"><span>Effective set, after</span><span id="after">—</span></div>
+          <div class="kv"><span>Bits before</span><span id="b-bits">—</span></div>
+          <div class="kv"><span>Bits after</span><span id="a-bits">—</span></div>
+          <div class="kv"><span>Gained</span><span id="delta">—</span></div>
+          <p class="note" id="candidates-line"></p>
+        </div>
+
+        <div class="panel">
+          <h3>By adversary model</h3>
+          <div class="t-scroll">
+            <table style="min-width:0">
+              <thead><tr><th>Model</th><th style="text-align:right">Candidates</th><th style="text-align:right">Bits</th></tr></thead>
+              <tbody id="models"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Cost</h3>
+          <div id="cost"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= RDO ================= -->
+<section id="rdo">
+  <div class="wrap">
+    <span class="sec-eyebrow">$RDO</span>
+    <h2 class="sec">Hold RDO. Pay less for cover.</h2>
+    <p class="sec-lede">
+      RDO is a fee-discount and coordination token for the cover market. It does
+      not entitle the holder to protocol revenue, and holding it earns nothing.
+      It reduces what you pay to buy decoys.
+    </p>
+
+    <div class="tier-ctrl">
+      <label for="rdo-bal" style="margin:0">Your RDO balance</label>
+      <input id="rdo-bal" type="number" value="0" min="0" step="100000">
+      <button class="btn btn-ghost" id="rdo-reset" style="padding:9px 16px">Reset</button>
+    </div>
+
+    <div class="tiers">
+      <div class="tier head">
+        <div>RDO held</div><div>Fee discount</div><div>You pay</div><div>Tier</div>
+      </div>
+      <div class="tier" data-min="0">
+        <div class="mono">No RDO held</div><div class="mono">0%</div><div class="mono">100%</div><div>Base</div>
+      </div>
+      <div class="tier" data-min="1000000">
+        <div class="mono">1,000,000+</div><div class="mono">5%</div><div class="mono">95%</div><div>Noise</div>
+      </div>
+      <div class="tier" data-min="2500000">
+        <div class="mono">2,500,000+</div><div class="mono">15%</div><div class="mono">85%</div><div>Static</div>
+      </div>
+      <div class="tier" data-min="5000000">
+        <div class="mono">5,000,000+</div><div class="mono">35%</div><div class="mono">65%</div><div>Carrier</div>
+      </div>
+      <div class="tier" data-min="10000000">
+        <div class="mono">10,000,000+</div><div class="mono">50%</div><div class="mono">50%</div><div>White noise</div>
+      </div>
+    </div>
+
+    <p class="note" style="max-width:760px">
+      The tier is computed from the balance you type above. <b>Nothing on this
+      page connects to a wallet</b> — there is no wallet connection and no
+      transaction is ever sent from here. This is a calculator, not a statement
+      about what you hold. The discount applies to the Ruido coordination fee,
+      not to the pool fee — the pool fee is what makes a decoy expensive to
+      fake, and discounting it would destroy the property it exists to protect.
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+    <a class="brand" href="./index.html">
+      <img src="./assets/logo.svg" alt="Ruido">
+      RUIDO<span class="tick">RDO</span>
+    </a>
+      <div class="foot-links">
+        <a href="#meter">Meter</a>
+        <a href="#sim">Simulator</a>
+        <a href="#rdo">RDO</a>
+        <a href="./index.html#how">Protocol</a>
+        <a href="./index.html#access">Access</a>
+        <a href="./index.html#faq">FAQ</a>
+      </div>
+    </div>
+    <p class="legal">
+      Ruido is measurement software, not a custodian, an exchange, or a mixing
+      service. It never holds funds and never touches a pool key. Every figure on
+      this page is reproducible from public RPC. Nothing here is legal, financial,
+      or investment advice. Check the law where you live before you deploy,
+      hold, or issue a token.
+    </p>
+  </div>
+</footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

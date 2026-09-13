@@ -1,0 +1,58 @@
+name: Deploy dashboard to Pages
+
+# The dashboard is static and has no build step, so "deploying" is copying three
+# things into an artifact. Do not add a bundler to this project just to have
+# something to run in CI.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No install step: the project has zero dependencies, so there is nothing
+      # to restore and no lockfile to keep honest.
+      - name: Run the suite
+        # PUBLISH.md tells the reader the suite runs on every push. It did not,
+        # and a deploy that goes green over a red suite is the same class of
+        # failure as a stale figure: it looks healthy. The count lives in
+        # README.md, method.html and PUBLISH.md, where a test pins it together.
+        run: npm test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site
+        # The file list is not typed here. scripts/build-site.mjs derives it
+        # from the paths app.js fetches and fails if any of them is missing —
+        # a measurement absent from the artifact is not a broken page, it is a
+        # stale number that still looks live.
+        run: node scripts/build-site.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

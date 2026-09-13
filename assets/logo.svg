@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Ruido">
+  <title>Ruido</title>
+  <desc>A clean wave on the left settling into flickering noise on the right. The signal holds still; only the noise moves.</desc>
+  <style>
+    /* The animation is the product, not decoration: the left half is a smooth
+       wave and it never moves, the right half is noise and it never settles.
+       A logo that flickered everywhere would read as "unstable"; this one says
+       the signal survives the noise.
+
+       transform-box: fill-box makes scaleY pivot on each bar's own centre.
+       Without it every bar scales about the SVG origin and they all leap
+       together, which looks like a bug rather than like static. */
+    .b { transform-box: fill-box; transform-origin: center; }
+    .n { animation: nz 1.05s steps(3, end) infinite; }
+    .n2 { animation-duration: 0.72s; animation-delay: -0.18s; }
+    .n3 { animation-duration: 1.35s; animation-delay: -0.52s; }
+    .n4 { animation-duration: 0.88s; animation-delay: -0.31s; }
+    @keyframes nz {
+      0%, 100% { transform: scaleY(1); }
+      38% { transform: scaleY(0.34); }
+      64% { transform: scaleY(0.78); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .n, .n2, .n3, .n4 { animation: none; }
+    }
+  </style>
+  <rect width="48" height="48" rx="12" fill="#b8ff3d"/>
+  <g fill="#07130a">
+    <rect class="b"    x="9"    y="22.5" width="1.5" height="3"  rx="0.75"/>
+    <rect class="b"    x="11.2" y="20"   width="1.5" height="8"  rx="0.75"/>
+    <rect class="b"    x="13.4" y="17"   width="1.5" height="14" rx="0.75"/>
+    <rect class="b"    x="15.6" y="14"   width="1.5" height="20" rx="0.75"/>
+    <rect class="b"    x="17.8" y="14"   width="1.5" height="20" rx="0.75"/>
+    <rect class="b"    x="20"   y="17"   width="1.5" height="14" rx="0.75"/>
+    <rect class="b"    x="22.2" y="20"   width="1.5" height="8"  rx="0.75"/>
+    <rect class="b n"  x="24.4" y="16"   width="1.5" height="16" rx="0.75" opacity="0.88"/>
+    <rect class="b n2" x="26.6" y="21"   width="1.5" height="6"  rx="0.75" opacity="0.88"/>
+    <rect class="b n3" x="28.8" y="13"   width="1.5" height="22" rx="0.75" opacity="0.88"/>
+    <rect class="b n4" x="31"   y="19"   width="1.5" height="10" rx="0.75" opacity="0.88"/>
+    <rect class="b n"  x="33.2" y="14.5" width="1.5" height="19" rx="0.75" opacity="0.88"/>
+    <rect class="b n2" x="35.4" y="21.5" width="1.5" height="5"  rx="0.75" opacity="0.88"/>
+    <rect class="b n3" x="37.6" y="15.5" width="1.5" height="17" rx="0.75" opacity="0.88"/>
+  </g>
+</svg>

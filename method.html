@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruido — Methodology</title>
+<meta name="description" content="How Ruido indexes a shielded pool and measures the anonymity set that survives an adversary. Every number reproducible.">
+<link rel="icon" href="./assets/logo.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #050505; --bg-2: #0b0c0b; --panel: #141614;
+    --border: #262a26; --border-2: #373c37;
+    --text: #ffffff; --muted: #9fa99f; --dim: #656f65;
+    --accent: #b8ff3d; --accent-2: #ffce4d;
+    --good: #b8ff3d; --bad: #ff6b6b; --warn: #ffce4d;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  header.nav { position: sticky; top: 0; z-index: 50; background: rgba(5,5,5,0.82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); }
+  .nav-in { display: flex; align-items: center; gap: 32px; height: 66px; max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+  .brand img { width: 30px; height: 30px; border-radius: 8px; }
+  .brand .tick { font: 500 11px/1 var(--mono); color: var(--accent-2); border: 1px solid var(--border-2); border-radius: 5px; padding: 3px 5px; }
+  .nav-links { margin-left: auto; display: flex; gap: 26px; font-size: 14px; color: var(--muted); }
+  main { padding: 64px 0 100px; }
+  h1 { font-size: clamp(30px, 4.4vw, 46px); line-height: 1.08; margin-bottom: 18px; }
+  .lede { font-size: 18px; color: var(--muted); margin-bottom: 44px; }
+  h2 { font-size: 24px; margin: 56px 0 16px; padding-top: 30px; border-top: 1px solid var(--border); }
+  h3 { font-size: 17px; margin: 30px 0 10px; }
+  p { margin: 0 0 16px; color: #b9c2b9; }
+  ul, ol { color: #b9c2b9; padding-left: 22px; margin: 0 0 18px; }
+  li { margin-bottom: 9px; }
+  code { font: 13px var(--mono); background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; color: var(--accent-2); }
+  pre { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; overflow-x: auto; margin: 0 0 20px; }
+  pre code { background: none; border: 0; padding: 0; color: #c2ccc2; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 0 0 20px; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  thead th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); background: var(--bg-2); }
+  td.mono { font-family: var(--mono); text-align: right; }
+  .call { border-left: 2px solid var(--accent); background: rgba(184,255,61,0.06); padding: 18px 22px; border-radius: 0 12px 12px 0; margin: 0 0 22px; }
+  .call.warn { border-left-color: var(--warn); background: rgba(255,206,77,0.06); }
+  .call p:last-child { margin-bottom: 0; }
+  .call strong { color: var(--text); }
+  footer { border-top: 1px solid var(--border); padding: 44px 0 70px; font-size: 13px; color: var(--dim); max-width: 860px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-in">
+    <a class="brand" href="./">
+      <img src="./assets/logo.svg" alt="Ruido"> RUIDO<span class="tick">RDO</span>
+    </a>
+    <nav class="nav-links">
+      <a href="./app.html#meter">Meter</a>
+      <a href="./#compare">Compare</a>
+      <a href="./#robinhood">Other chains</a>
+      <a href="./app.html#rdo">RDO</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1>Methodology</h1>
+  <p class="lede">
+    Every number Ruido publishes is reproducible from a public RPC endpoint with
+    no API key, no indexer subscription, and no dependency tree. If you cannot
+    reproduce it, it is not a measurement.
+  </p>
+
+  <h2>1. Index the pool</h2>
+  <p>
+    We call <code>starknet_getEvents</code> against the pool address from block 0
+    to <code>latest</code>, following continuation tokens until the RPC stops
+    returning one. No sampling, no window, no "recent activity" shortcut: a set
+    measured over a partial history is a set measured over a different pool.
+  </p>
+  <p>
+    Event names are derived from the <strong>deployed class ABI</strong>, never from a
+    hardcoded table. Two reasons. The on-chain version of a pool diverges from
+    the version in the repository that documents it, and pools get upgraded.
+    Both were true for the pool we measured: it has run three distinct
+    implementations, and a single-ABI index silently drops the events emitted
+    before the last upgrade.
+  </p>
+  <p>
+    We resolve this by discovering classes lazily. When an event key cannot be
+    explained by any ABI we have loaded, we fetch the class hash that was live at
+    that block and merge its layout in. When no unexplained keys remain, no event
+    has been dropped — and we report the class history alongside the data, so the
+    completeness claim can be checked.
+  </p>
+  <p>
+    One thing that history is <em>not</em> is a count of implementations. Lazy
+    discovery only looks when an event key is unexplained, so an upgrade whose
+    event layouts happen to be covered leaves no trace. Sepolia has run
+    <strong>three</strong> implementations; the corpus lists two. Probing
+    <code>starknet_getClassHashAt</code> directly at each era is what settles it,
+    and it also shows the same class hash
+    (<code>0x30b8c540…</code>) live on Sepolia <em>and</em> mainnet — so a class
+    hash does not identify a network. Treat <code>classHistory</code> as a lower
+    bound, which is why the completeness claim above is about events rather than
+    about classes.
+  </p>
+
+  <pre><code>npm run corpus           # index -> data/corpus.json
+npm run corpus:mainnet   # same, against mainnet</code></pre>
+
+  <h2>2. Reduce to what an adversary sees</h2>
+  <p>
+    The index keeps block numbers and transaction hashes. Nothing else. That is
+    deliberate and it is also a limitation worth stating plainly: the adversary
+    modelled here is weaker than a real one. They do not see a mempool, IP
+    addresses, exchange withdrawal records, or the amounts behind a deposit.
+    Every figure is therefore an <strong>upper bound</strong> on privacy.
+  </p>
+
+  <h3>Notes versus origins</h3>
+  <p>
+    A transaction can mint many notes. When it does, all of those notes share an
+    origin, and a shared origin is not a probabilistic inference — it is written
+    into the ledger. One account, one nonce, one transaction.
+  </p>
+  <p>
+    This distinction decides whether a measurement is honest. The pool we
+    measured has a single transaction that minted 295 notes in one block.
+    Counting notes, that is 295 anonymous people. Counting origins, it is one.
+    Every table Ruido publishes carries both columns, and they are never
+    averaged together.
+  </p>
+
+  <h3>The adversary models</h3>
+  <table>
+    <thead><tr><th>Model</th><th>What the adversary knows</th></tr></thead>
+    <tbody>
+      <tr><td><b>nominal</b></td><td>Nothing. The candidate set is the whole pool. This is the number a project puts on a slide.</td></tr>
+      <tr><td><b>timing ±N</b></td><td>The block the target note was created in, to within N blocks.</td></tr>
+      <tr><td><b>origins ±N</b></td><td>The same, but distinct funding transactions are counted once.</td></tr>
+      <tr><td><b>amount</b></td><td>The denomination of the public funding leg. Measured on 34.3% of Sepolia notes and 55.3% on mainnet — the rest are change notes whose amount no public event exposes.</td></tr>
+      <tr><td><b>timing+amount</b></td><td>The amount and the block window together. The sharpest axis measured: 64.93 candidates at ±1 block falls to 1.27.</td></tr>
+      <tr><td><b>linkage</b></td><td>The deposit that funded a known account, attributable back to it.</td></tr>
+      <tr><td><b>all</b></td><td>Every axis above, applied together. The tightest set.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. Define the number</h2>
+  <p>
+    Bits is <code>log2</code> of the candidate count. It is the right unit
+    because it is the unit an adversary pays in: each additional bit doubles the
+    work, and each additional bit of cover doubles the cost of buying it.
+  </p>
+  <p>
+    One candidate is zero bits. There is no hiding inside a set of one, and a
+    table that reports "1 candidate, 0 bits" is reporting a complete leak, not a
+    small number.
+  </p>
+  <p>
+    We report the <strong>mean over a sample of real notes</strong>, not over a single
+    note. Under a tight timing window a single note's candidate count is 1 or 2
+    and moves non-monotonically as cover is added, which would let a scaling
+    curve claim that more cover buys less privacy. Averaging over a sample is
+    what turns the count into a curve that can be read. The median is reported
+    beside it, because the mean of a set containing single-note transactions is
+    a different quantity than the median, and both are true.
+  </p>
+
+  <div class="call">
+    <p><strong>Both networks, measured the same way.</strong> Mean over 400 real notes at
+    ±10 blocks, counting distinct origins:</p>
+    <table style="margin:14px 0 0">
+      <thead><tr><th>Network</th><th>notes</th><th>origins ±10</th><th>bits</th><th>alone</th></tr></thead>
+      <tbody>
+        <tr><td>Sepolia</td><td class="mono">8,323</td><td class="mono">1.11</td><td class="mono">0.15</td><td class="mono">93.4%</td></tr>
+        <tr><td>Mainnet</td><td class="mono">32,924</td><td class="mono">3.38</td><td class="mono">1.76</td><td class="mono">42.5%</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:14px 0 0">Mainnet is the better pool and still under two bits. Neither
+    figure is a passing grade; the difference between them is density, not design.</p>
+  </div>
+
+  <h3>The denomination axis is partial, and that is measured too</h3>
+  <p>
+    An amount is public for a note in exactly two ways. An open note publishes a
+    <code>note_id</code> and <code>OpenNoteDeposited</code> publishes the same
+    <code>note_id</code> with an amount; or the note's transaction carries exactly
+    one distinct <code>Deposit</code>. A change note minted by spending an existing
+    note has neither, so its amount is unobservable. That is not a limitation of
+    our tooling, it is a property of the ledger, and it means the axis covers
+    <strong>34.3%</strong> of Sepolia notes and <strong>55.3%</strong> on mainnet.
+  </p>
+  <p>
+    So the axis is reported over the subset it can see and never extrapolated to
+    the pool. Where it applies, it is the sharpest axis measured: a ±1-block
+    observation falls from 64.93 candidates to <strong>1.27</strong>, and 89.5% of
+    amount-visible notes have no other note of their denomination in that window.
+  </p>
+  <p>
+    One candidate source was checked and rejected rather than assumed.
+    <code>EncNoteCreated</code> carries a <code>packed_value</code> felt, and if
+    the amount were in it the axis would cover every note. Its magnitude sits 55
+    orders of magnitude above the amounts it would have to encode, so it is a
+    commitment. <code>npm run check:packed</code> reproduces that.
+  </p>
+  <div class="call warn">
+    <p><strong>A wrong amount is not an error, it is a smaller anonymity set.</strong>
+    The first version of this join broadcast one event's amount onto every note in
+    its transaction, which gave <strong>508 notes</strong> an amount they should not
+    have and inflated coverage from 34.3% to 40.4%. Nothing about the resulting
+    numbers looked wrong — a smaller candidate set reads as a better finding. Only
+    <code>Deposit</code> is evidence about an encrypted note; open-note amounts are
+    matched to their own note by <code>note_id</code>. A regression test fails if
+    the two are merged again.</p>
+  </div>
+
+  <h3>The unit is seconds, not blocks</h3>
+  <p>
+    A window expressed in blocks is expressed in a unit whose meaning changes
+    from chain to chain. Robinhood Chain produces a block every 0.102 s, Base
+    every 2.000 s, Starknet every 1.702 s, and Ethereum every 12.056 s. So "the
+    adversary knows the block to within 10" is <strong>1.0 second</strong> on one
+    and <strong>120.6 seconds</strong> on another, and a table placing those two
+    columns side by side compares nothing at all.
+  </p>
+  <p>
+    This report originally stated its windows in blocks. That was defensible
+    only for as long as every chain in the table shared a block time, and it
+    stopped being true the moment a second chain entered. Every window is now
+    stated in <strong>wall-clock seconds</strong>, and the conversion is measured from
+    the chains rather than assumed:
+  </p>
+  <table>
+    <thead><tr><th>Window</th><th>Robinhood Chain</th><th>Starknet</th><th>Base</th><th>Ethereum</th></tr></thead>
+    <tbody>
+      <tr><td>±10 blocks</td><td class="mono">1.0 s</td><td class="mono">17.0 s</td><td class="mono">20.0 s</td><td class="mono">120.6 s</td></tr>
+      <tr><td>±100 blocks</td><td class="mono">10.2 s</td><td class="mono">170.1 s</td><td class="mono">200.0 s</td><td class="mono">1,205.6 s</td></tr>
+      <tr><td>±1,000 blocks</td><td class="mono">101.7 s</td><td class="mono">1,701.4 s</td><td class="mono">2,000.0 s</td><td class="mono">12,056.0 s</td></tr>
+    </tbody>
+  </table>
+  <p>
+    The extremes differ by a factor of <strong>118×</strong>, and the correction
+    runs in both directions. The published STRK20 window of ±10 blocks is ±17.0 s;
+    on Robinhood Chain that is <strong>±167 blocks</strong>, and on Ethereum it is
+    <strong>±1 block</strong> — which is why Ethereum's ±1 s and ±10 s rows are
+    identical, ten seconds being less than one block. Reproduce with
+    <code>npm run blocktimes</code>.
+  </p>
+
+  <h2>4. Separate user traffic from load generation</h2>
+  <p>
+    Testnet pools carry scripted traffic that mints hundreds of notes per
+    transaction. It is not anonymous activity and it should not be counted as
+    such, but it is also not removable: it is on the chain, the adversary sees
+    it, and it does provide cover.
+  </p>
+  <p>
+    So we report both. The whole-pool table includes it. A second table restricts
+    to human-scale transactions — at most six notes, which is above the five-note
+    shape of the wire protocol we studied — and reports the same models over that
+    subset. Neither table is presented alone.
+  </p>
+
+  <h2>5. What would falsify this</h2>
+  <p>
+    Concretely, and in order of how much they would change the conclusion:
+  </p>
+  <ul>
+    <li><s>Indexing mainnet, where volumes are lower and the measurement should get <em>worse</em>.</s>
+      <strong>Falsified.</strong> Mainnet reads 1.76 bits against Sepolia's 0.15 — better,
+      not worse, because mainnet is 4.6× denser rather than quieter. The prediction is
+      struck through, not deleted, because the falsification is the result.</li>
+    <li><s>Adding the denomination axis. It can only shrink candidate sets, never grow them, so it cannot rescue any figure above.</s>
+      <strong>Done, and it did not rescue anything — it confirmed the direction and sharpened it.</strong>
+      The indexer now decodes amounts out of the event payloads. On the 34.3% of Sepolia
+      notes whose amount is publicly derivable, a ±1-block observation falls from 64.93
+      candidates to <b>1.27</b>. Getting there required fixing a join bug that had been
+      silently <em>inflating</em> coverage by 508 notes, which is the more instructive
+      half of the result: a wrong amount is not an error, it is a smaller anonymity set,
+      and a smaller anonymity set looks like a better finding.</li>
+    <li>Showing that the ±17 s window is unjustified — that a real adversary cannot in fact narrow to a range that tight. Our 98.3% at ±1 block on Sepolia is the case to argue with.</li>
+    <li>Showing that a large timing candidate set on a chain with persistent, cleartext addresses <em>does</em> provide anonymity. That is the claim section 6 rests on, and it is the one most worth attacking.</li>
+    <li>Finding a transaction on any of the three chains whose sender is not present in the public block data. That would falsify the 0-bit result directly.</li>
+    <li>Finding a contract that passes all four pool conditions. That would be a candidate and would need its own measurement; the 0-bit figure covers the transparent population only.</li>
+    <li>Showing that a defender can place cover at the pool's fee without paying the fee. That would break the sybil resistance the cover market depends on.</li>
+  </ul>
+
+  <div class="call warn">
+    <p><strong>This is not a claim that the pool is broken.</strong> It does what
+    it says: it hides what a note is worth and who spends it. It does not hide
+    <em>when</em> the note was created, because creation is an on-chain event. At
+    1.25 notes per thousand blocks, "when" is very nearly a unique identifier.
+    That is the finding, and it is a property of the traffic, not a defect in the
+    cryptography.</p>
+  </div>
+
+  <h2>6. Chains with no shielded pool</h2>
+  <p>
+    A meter that only ever points at the thing its author likes is not a meter.
+    So we pointed it at three chains that are not STRK20 — <strong>Robinhood
+    Chain</strong> (Arbitrum Orbit, 4663), <strong>Base</strong> (OP Stack, 8453)
+    and <strong>Ethereum</strong> (1) — none of which has a shielding primitive.
+    Adding a chain is a data change, not a code change: they live in
+    <code>src/chains.mjs</code>, and a test asserts the indexer contains no
+    hardcoded addresses or chain IDs.
+  </p>
+  <p>
+    The question this report is built around, "how many other notes could this
+    be", has no answer there, because there are no notes. The sender is written
+    in the transaction. So the measurement reports what can be measured and names
+    what cannot:
+  </p>
+  <ul>
+    <li>The <strong>timing axis</strong>, which exists on every chain, expressed in the
+    same seconds as the STRK20 windows above.</li>
+    <li><strong>Address reuse</strong>, because a second transaction from an address is not
+    a new suspect — it is a confirmation of a link the adversary already held.</li>
+    <li><strong>Contract concentration</strong>, because "what is this address doing" is
+    largely answered by which contract it calls.</li>
+    <li>A <strong>behavioural test</strong> for a shielded pool, described below.</li>
+  </ul>
+
+  <h3>Why a big candidate set is not privacy</h3>
+  <p>
+    At ±17 s, all three chains have a much larger candidate set than STRK20
+    mainnet does at the same window — 2,304 senders, 1,356 and 688, against 3.25
+    notes. All three have an effective anonymity of <strong>0 bits</strong>, and
+    both statements are true simultaneously, because a candidate set is only an
+    anonymity set when the parties inside it are indistinguishable from each
+    other. On STRK20 they are unlinkable notes. Here they are persistent
+    addresses, and an address that persists is a name.
+  </p>
+  <p>
+    Ethereum is also where the seconds correction runs backwards. Its block time
+    is 12.056 s, so <strong>±17 s is ±1 block</strong>, and the ±1 s and ±10 s
+    rows of its timing table are identical — widening the window by ten seconds
+    widens it by nothing, because ten seconds is less than one block. A
+    block-denominated table across these chains would have hidden that.
+  </p>
+
+  <h3>Testing for a pool without trusting a label</h3>
+  <p>
+    Contract names were not resolved against an explorer. An explorer is a third
+    party with its own incentives, and its label is not evidence. We tested
+    behaviour instead: a mixer concentrates transfers into a handful of fixed
+    denominations reused hundreds of times, which leaves a <em>small value space
+    relative to the number of transfers</em>. Ordinary traffic does the opposite.
+  </p>
+  <p>
+    That test was wrong three times before it was right, and each correction came
+    from running it:
+  </p>
+  <ol>
+    <li>
+      <strong>Whole-chain was the wrong granularity.</strong> On Ethereum it
+      reported "no pool" while Tornado Cash was deployed there. A 10-hour window
+      carries 340,000 value transfers, and a mixer with a hundred deposits is
+      0.03% of that, so a chain-wide distribution can never be concentrated
+      enough to fire. <em>A mixer is a contract, not a chain.</em>
+    </li>
+    <li>
+      <strong>The value shape over-reports.</strong> Per contract on Robinhood
+      Chain it fired on eleven contracts, every one a fixed-amount payment
+      pattern: a sale at a fixed price, a batch payer, one bot repeating an
+      amount. The deposit shape cannot tell those from a pool, so two conditions
+      were added — <em>more than one depositor</em>, and <em>value flowing both
+      ways</em>.
+    </li>
+    <li>
+      <strong>A fee collector wears the same shape.</strong> One candidate
+      survived both: 120 deposits of exactly 0.0005 ETH from 72 addresses. Its
+      withdrawals settled it — seven of ten went to the same address in irregular
+      lumps of 0.77 to 18.62 ETH. A pool returns the denominations it took; this
+      swept a balance to a treasury. Hence a third condition: the
+      <em>outflow must be pool-shaped too</em>.
+    </li>
+  </ol>
+  <p>
+    A detection therefore requires four things, of which the last three are
+    requirements a pool cannot fail rather than tuned thresholds. Every contract
+    the shape test fired on is listed with the reason it was rejected — on all
+    three chains the viable count is <strong>zero</strong>, and the gap between
+    the two counts is the finding.
+  </p>
+  <p>
+    One further honesty note. Ethereum was registered as the <em>positive
+    control</em> for this detector, because Tornado Cash is deployed there. Then
+    it was measured, and the control does not work: in the observed window the
+    0.1 ETH pool received <strong>one</strong> transfer. Tornado Cash is deployed
+    and effectively dormant, so a recent window cannot exercise the detector at
+    all. The proof that it can fire is a unit test with a mixer-shaped fixture,
+    not this chain.
+  </p>
+
+  <div class="call warn">
+    <p><strong>Exclusions are stated, not applied quietly.</strong> The address
+    <code>0x…a4b05</code> is written exactly once per block on Robinhood Chain;
+    it is Arbitrum's L1-block-number pseudo-address, not a person, and left in
+    the identity counts it becomes the single most active account on the chain.
+    Base has the equivalent in <code>0xdeaddead…0001</code>, the OP Stack L1
+    attributes depositor. Both are excluded and reported separately.</p>
+    <p>What is <em>not</em> excluded is the list of addresses transacting close
+    to once per block. Base has 23 of them and Ethereum 10, and every one is a
+    high-frequency bot rather than infrastructure. A count-based rule that
+    dropped them would have deleted 23 real participants from Base's figures and
+    flattered every number built on them. They are <strong>reported</strong>
+    instead.</p>
+    <p>Separately, every measurement is a <strong>sampled window, not a
+    census</strong>. The public RPC sustains roughly 20 blocks per second with
+    batching, and these chains are tens of millions of blocks — weeks to years of
+    scanning. The window, its coverage, and the count of any blocks that could
+    not be fetched are printed with the result. A sample that presents itself as
+    a census is worse than no sample.</p>
+    <p>The indexer holds its window in memory, and Base is dense: a 12,000-block
+    attempt died with a heap-limit crash after 6,125 blocks. It now prints free
+    RAM and an estimated requirement before starting, and Base's window is 3,000
+    blocks for that measured reason.</p>
+  </div>
+
+  <h2>Reproducing it</h2>
+  <pre><code>git clone &lt;repo&gt; &amp;&amp; cd ruido
+npm test                  # 204 tests, no dependencies
+npm run blocktimes        # measure the chains' block times live
+npm run corpus            # index the live STRK20 pool, decoding event payloads
+npm run measure:corpus    # measure it, including the denomination axis
+npm run verify:decode     # check the decoder against the live chain: 0 mismatches
+npm run check:packed      # the negative finding about EncNoteCreated.packed_value
+npm run rh:index          # index a window of Robinhood Chain
+npm run rh:measure        # measure that window
+npm run base:index        # index a window of Base
+npm run base:measure
+npm run eth:index         # index a window of Ethereum
+npm run eth:measure
+npm run measure           # the synthetic model, seeded
+npm run quote             # price an order: bits, not decoys. Offline
+npm run serve:provider    # a reference provider, on loopback
+npm run buy -- --provider http://127.0.0.1:8081 --cell 1.93 --bits 3 \
+               --mode window --from 14865231 --denomination 10
+npm run web               # view the dashboard</code></pre>
+  <p>
+    Requires Node 20 or later. Nothing else. The keccak implementation needed for
+    Starknet selectors is in <code>src/keccak.mjs</code>, tested against
+    vectors generated by an independent implementation.
+  </p>
+</main>
+
+<footer>
+  Ruido is measurement software. It never holds funds and never touches a pool
+  key. Nothing here is legal, financial, or investment advice.
+</footer>
+</body>
+</html>

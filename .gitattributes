@@ -1,0 +1,4 @@
+# Normalise line endings so a Windows checkout does not produce a diff on every
+# file. Without this, the first commit from Windows rewrites the whole
+# repository and the diff is unreadable.
+* text=auto eol=lf
