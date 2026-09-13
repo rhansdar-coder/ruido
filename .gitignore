@@ -45,6 +45,14 @@ shots/crop*.html
 # it would mean two copies of every measurement that can disagree.
 _site/
 
+# Order files written by `npm run buy --out`. These are not build output and not
+# scratch: an order file holds the REVEAL, which is the preimage that opens the
+# commitment, and until the window closes it is the one secret the trade depends
+# on. Committing one publishes the rung — the same failure as committing a key,
+# with the same cause: a file that looks like data and is actually a secret.
+orders/
+*.order.json
+
 # OS and editor noise
 .DS_Store
 Thumbs.db

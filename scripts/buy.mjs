@@ -7,6 +7,13 @@
 //
 //   npm run buy -- --provider ... --tx 0xabc123   # also record the payment
 //
+//   npm run buy -- --provider ... --out orders/mi-orden.json
+//
+// `--out` writes the order and the reveal to a file, which is what the fourth
+// step (`npm run reveal`) reads. Without it the reveal is only printed, and a
+// terminal is not a place to keep the one secret the trade depends on: losing
+// it means the order can never be settled.
+//
 // scripts/quote.mjs prices an order locally and prints it; this one sends it
 // somewhere and comes back with an invoice. That difference is the whole point:
 // a quote with no counterparty is a calculator.
@@ -23,6 +30,9 @@
 // The full reveal is printed at the end and is the buyer's to keep until the
 // window closes. Losing it means the order cannot be settled; publishing it
 // early means the provider learns the rung before it emits.
+
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import { buildOrder, serialiseOrder, serialiseWindowProof, serialiseReveal } from "../src/order.mjs";
 import { quote } from "../src/quote.mjs";
@@ -46,6 +56,7 @@ const WIDTH = Number(arg("width", "20"));
 const DENOMINATION = arg("denomination", null);
 const TX = arg("tx", null);
 const SEED = Number(arg("seed", "1"));
+const OUT = arg("out", null);
 
 function die(message) {
   console.error(`\n  ${message}\n`);
@@ -160,6 +171,44 @@ if (TX) {
 
 const revealOnWire = serialiseReveal(reveal);
 
+// Persist what the fourth step needs, before anything is printed — so a run
+// that is piped into `head` or interrupted still leaves a usable order file.
+//
+// No timestamp is written. The whole order is reproducible from `--seed`, and a
+// field that is not would be the first thing in this file a reader could not
+// re-derive; the window's own block numbers already say when it applies.
+if (OUT) {
+  const record = {
+    order: orderOnWire,
+    reveal: revealOnWire,
+    provider: PROVIDER,
+    terms: {
+      network: terms.network,
+      ladder: terms.ladder,
+      feePerCall: terms.feePerCall.toString(),
+      margin: terms.margin.toString(),
+    },
+    // The invoice as issued, and the payment as recorded — two different facts.
+    // Writing only the first meant the order file described an unpaid order even
+    // after it had been paid, so the fourth step could not tell from the file
+    // whether there was anything to settle. It is the buyer's own record, so it
+    // has to carry what the buyer actually did, not what was quoted to them.
+    invoice: reply.invoice,
+    payment: payment ?? null,
+    priced: {
+      mode: MODE,
+      targetCell: priced.targetCell,
+      decoys: priced.decoys,
+      bitsRequested: priced.bitsRequested,
+      bitsDelivered: priced.bitsDelivered,
+      landingRate: priced.landingRate,
+    },
+  };
+  const dir = dirname(OUT);
+  if (dir && dir !== ".") await mkdir(dir, { recursive: true });
+  await writeFile(OUT, `${JSON.stringify(record, null, 2)}\n`);
+}
+
 if (flag("json")) {
   console.log(JSON.stringify({ provider: terms, order: orderOnWire, windowProof: proofOnWire, invoice: reply.invoice, payment, reveal: revealOnWire }, null, 2));
   process.exit(0);
@@ -211,3 +260,8 @@ console.log(
     "  which rung was the buyer's before it emits; losing it means the order can\n" +
     "  never be settled.\n",
 );
+
+if (OUT) {
+  console.log(`  Written to ${OUT} — publish it with:\n`);
+  console.log(`    npm run reveal -- --order ${OUT}\n`);
+}

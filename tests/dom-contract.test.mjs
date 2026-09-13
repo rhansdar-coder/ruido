@@ -541,3 +541,49 @@ test("the test count stated in the docs matches the tests that exist", () => {
       `${s.file} says "${s.text}" but ${actual} tests exist`);
   }
 });
+
+// --- the same problem, one level down: a count stated about a table ----------
+// docs/CUSTOMER.md ends its status table with "Nineteen rows, eleven live, one
+// priced, seven not built". Every one of those four numbers is derivable from
+// the table directly above it, which means every one of them can go stale the
+// moment a row is added — and a reader who trusts the sentence instead of
+// counting is exactly the reader this project writes for. Derived, not stated.
+
+test("the row counts stated in docs/CUSTOMER.md match the table", () => {
+  const doc = read("docs/CUSTOMER.md");
+  const m = doc.match(/(\w+) rows, (\w+) live, (\w+) priced, (\w+) not built/);
+  assert.ok(m, "docs/CUSTOMER.md no longer states its row counts — this check is vacuous");
+
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
+                  eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
+                  fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+                  eighteen: 18, nineteen: 19, twenty: 20, twentyone: 21 };
+  const [, rows, live, priced, missing] = m.map((v) => (typeof v === "string" && words[v.toLowerCase()]) || v);
+
+  // The table is the one under the "What has to exist for the journey to work"
+  // heading: pipe rows, minus the header and the separator.
+  const section = doc.split("## What has to exist for the journey to work")[1];
+  assert.ok(section, "the status table's section heading was renamed");
+  const body = section.split("\n## ")[0];
+  const data = body.split("\n").filter((l) => l.startsWith("|")).slice(2);
+  assert.ok(data.length > 10, `parsed only ${data.length} rows; the extractor is probably wrong`);
+
+  // The verdict is bolded and the bold is not closed at the same place in every
+  // row — `**live**`, `**live** — ...`, `**not built.**` — so the match is on the
+  // bold opening plus the phrase, not on a whole closed span.
+  const count = (word) => data.filter((l) => new RegExp(`\\*\\*${word}\\b`).test(l)).length;
+  const derived = { rows: data.length, live: count("live"), priced: count("priced"), missing: count("not built") };
+
+  assert.equal(Number(rows), derived.rows, `the sentence says ${rows} rows, the table has ${derived.rows}`);
+  assert.equal(Number(live), derived.live, `the sentence says ${live} live, the table has ${derived.live}`);
+  assert.equal(Number(priced), derived.priced, `the sentence says ${priced} priced, the table has ${derived.priced}`);
+  assert.equal(Number(missing), derived.missing, `the sentence says ${missing} not built, the table has ${derived.missing}`);
+
+  // And the four have to add up, or the sentence is internally wrong even when
+  // each part matches: a row counted twice would hide here otherwise.
+  assert.equal(
+    derived.live + derived.priced + derived.missing,
+    derived.rows,
+    "the status table has a row that is none of live, priced, or not built",
+  );
+});

@@ -58,15 +58,38 @@ The cover is *other* notes, emitted by providers, landing in the same cell. The
 customer's note is not modified or wrapped. From outside, it looks like what it
 now is: one candidate among several.
 
-### 4. Reveal — after the window, publish the preimage
+### 4. Reveal — after the window, and not one block before
 
-Once the window closes, the commitment opens. Settlement then checks that each
-decoy the provider claims actually landed in the revealed cell, and that the
-commitment was not already claimed by another buyer. First claim wins. Then the
-provider is paid.
+Once the window closes, the commitment opens. `npm run reveal` is that client: it
+reads the order file that `npm run buy --out` wrote, checks both commitments
+locally, resolves the chain height, and refuses until the window is behind them.
 
-Without this step the buyer would be buying a promise. With it, they are buying
-something anyone can check.
+The refusal is the point, and it is worth being precise about why. The provider
+was given the window and never the rung, and that split is the only reason it
+cannot aim cover at the customer's cell. A reveal published while the window is
+still open hands over the rung **before the provider emits** — at which point the
+provider can aim straight at the cell, or simply keep the fee and emit nothing.
+So the rule is a comparison against the chain's height, not the customer's
+judgement, and it lives in `src/reveal.mjs` rather than in the CLI, so that a
+script cannot be the only thing standing between a buyer and that mistake.
+
+It also **fails closed**. If the current block cannot be established, the run
+exits non-zero rather than assuming the window has passed. "Nobody can tell" and
+"not yet" are different answers and only one of them is a wait; the tempting
+default of treating an unknown height as fine turns a missing RPC into a rung
+handed over early, silently and irreversibly.
+
+Then settlement runs: it checks that each decoy the provider presents actually
+landed in the revealed cell, and that it was not already claimed by another
+buyer. First claim wins. Without this step the customer would be buying a
+promise; with it, they are buying something anyone can check.
+
+What settlement counts is emissions that **landed**, never the plan. A note id
+only exists once an emission does, and the emitter is what puts one there — so
+today the count is zero, and the settlement says so out loud instead of counting
+the plan as if the work were done. That is the honest reading of a settled order
+in the current build: **settled, and nothing delivered yet**, with the shortfall
+printed as a number rather than rounded away.
 
 ---
 
@@ -172,19 +195,22 @@ last one".
 | the order format and its wire round trip | **live** — `src/order.mjs` |
 | the window proof a provider is given | **live** — the half that lets it emit in time without learning the rung |
 | settlement and the double-sell guard | **live** — `src/settlement.mjs` |
+| the reveal gate (early / wrong / unanswerable) | **live** — `src/reveal.mjs`. Refuses while the window is open, fails closed on an unknown height |
 | a provider that reads, prices and plans an order | **live** — `src/provider.mjs`, `npm run serve:provider` |
 | a client that connects and buys | **live** — `npm run buy`. The whole trade is tested with no chain |
+| a client that closes the order | **live** — `npm run reveal`, the fourth step. Also tested with no chain |
 | the emitter | **not built** — see [`RUNBOOK-emitter.md`](RUNBOOK-emitter.md) |
 | a provider that **broadcasts** what it planned | **not built.** The plan is real; the emission is a stand-in for the emitter |
 | a payment rail | **not built.** An invoice, a tx hash, and a transfer someone checks. No escrow, no custody, no refunds — `TOKEN.md` §5 says run it invoiced or prepaid first |
 | an order book | **not built.** Nothing lists orders or matches them; a provider is reached by URL |
 | a provider worth trusting | **not built.** Loopback, no TLS, no auth, no rate limiting — and it learns **when** each buyer transacts |
 | on-chain settlement | **not built.** Settlement runs on a JSON file, not on Starknet |
+| a provider's own view of the chain height | **not built.** `--at` pins one by hand. Without it the settlement is labelled `heightSource: "buyer"` and states that the height was not verified |
 
-Sixteen rows, ten of them live, and every live one was built without a node, a
-chain, or a key. That is the point: **the customer's side of Ruido is finished
-and untested against reality at the same time**, because what was missing was
-never code.
+Nineteen rows, eleven live, one priced, seven not built — and every live one was
+built without a node, a chain, or a key. That is the point: **the customer's side
+of Ruido is finished and untested against reality at the same time**, because
+what was missing was never code.
 
 The gap is still not the emitter — the emitter is the *supply*. The gap is
 everything that turns a supply into a market: a provider that **broadcasts** what

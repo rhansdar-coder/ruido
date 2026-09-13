@@ -196,14 +196,16 @@ stops one batch of decoys being sold twice, is in
 | `npm run check:abi` | Prove the calldata decoder handles every type the deployed ABI mentions |
 | `npm run dump:screening` | Dump the `screening` field of a given block's `apply_actions` felt by felt |
 | `npm run check:packed` | The negative finding: `EncNoteCreated.packed_value` does not carry the amount |
+| `npm run verify:journey` | **The four steps over real HTTP.** Spawns the reference provider, drives `buy` and `reveal` against it as child processes, and checks the refusals on both sides. Needs no chain. This is the seam `npm test` cannot reach: the unit tests call `admitReveal` and never open a socket |
 | `npm run measure` | M1, M3, effective set under six models, cover placement, landing rate, order size, cost per bit (synthetic, seeded) |
 | `npm run quote` | **The customer's entry point.** Turn "N bits of anonymity" into an order and a reveal, offline. `--cell` is required and points at the measured cell |
-| `npm run serve:provider` | A reference provider on loopback: `GET /terms`, `POST /orders`, `POST /orders/:id/payment`. Loopback only, and not a deployment |
-| `npm run buy` | **Connect and acquire.** Ask a provider for its terms, price the order against its ladder, send the order and the window half, and keep the reveal. `--provider <url> --cell <n> --bits <n> --from <block> --denomination <rung>` |
+| `npm run serve:provider` | A reference provider on loopback: `GET /terms`, `POST /orders`, `POST /orders/:id/payment`, `GET /orders/:id`, `POST /orders/:id/reveal`. Loopback only, and not a deployment. `--at <block>` pins the height it settles against; without it, settlements are labelled as taking the buyer's word |
+| `npm run buy` | **Connect and acquire.** Ask a provider for its terms, price the order against its ladder, send the order and the window half, and keep the reveal. `--provider <url> --cell <n> --bits <n> --from <block> --denomination <rung> --out <file>` writes the order and the reveal to a file, which is what step four reads |
+| `npm run reveal` | **Step four: publish the reveal.** Refuses while the window is still open, fails closed if the block height cannot be established, and settles against the provider once it can. `--order <file> [--provider <url>] [--at <block>]` |
 | `npm run site` | Assemble `_site/` — the exact artifact Pages publishes — and verify nothing is missing |
 | `npm run site:check` | Verify the artifact manifest without writing anything |
 | `npm run web` | Dashboard at http://127.0.0.1:8080 |
-| `npm test` | 204 tests: adversary classifier, keccak vectors, large-input regressions, event decoding, denomination join, calldata decoding (Span, Option, tuples, u256, exact consumption), calldata encoding (round-trip, the ambiguous `Option<Option<T>>`, short-form refusals), cover placement ordering and price curve, the split commitment, quoting, settlement and the double-sell guard, the provider's accept/refuse rules and decoy plan, the whole trade end to end with no chain, artifact manifest, DOM contract, EVM measurement |
+| `npm test` | 223 tests: adversary classifier, keccak vectors, large-input regressions, event decoding, denomination join, calldata decoding (Span, Option, tuples, u256, exact consumption), calldata encoding (round-trip, the ambiguous `Option<Option<T>>`, short-form refusals), cover placement ordering and price curve, the split commitment, quoting, settlement and the double-sell guard, the provider's accept/refuse rules and decoy plan, the whole trade end to end with no chain, the reveal gate (early / wrong / unanswerable heights, and the four-step journey), artifact manifest, DOM contract, EVM measurement |
 | `npm run shots` | Render the platform to `shots/` using the installed Chrome. `--only <name>` re-shoots one section |
 | `src/chains.mjs` | The chain registry. Adding a chain is a data change, not a code change |
 | `src/keccak.mjs` | starknet_keccak, hand-rolled and tested, because Node has no keccak256 |
@@ -220,6 +222,7 @@ stops one batch of decoys being sold twice, is in
 | `src/quote.mjs` | The inverse of the model: bits → decoys → STRK, per placement position |
 | `src/order.mjs` | Building an order and its reveal, and the wire format they travel in. The **window proof** is its own function, so "send the provider what it needs" cannot become "send the provider the reveal" |
 | `src/settlement.mjs` | Counting decoys in the revealed cell, and refusing to pay for one twice |
+| `src/reveal.mjs` | **When the reveal may be published.** Wrong, early, and unanswerable are three different answers, and an unknown block height fails closed rather than passing. Also the provider's half of the same check, so both sides run one implementation |
 | `src/provider.mjs` | The counterparty: terms, accept/refuse, invoice, payment, and the decoy plan — every decoy inside the window, because the quote's landing rate assumes it |
 
 ## Real pool measurement

@@ -28,6 +28,21 @@
 // provider that starts logging order windows is keeping a record of when its
 // customers transact, which is the product's central privacy cost and should be
 // written down wherever the provider's policy lives.
+//
+// ## The fourth step, and why this route refuses
+//
+// `POST /orders/:id/reveal` is the only request in the protocol that arrives
+// after the trade, and it is the only one the provider must not have been given
+// earlier. The route re-runs the same check the buyer's client runs — has the
+// window closed — and refuses with the number of blocks left when it has not.
+//
+// Note what that check is and is not. It protects the buyer from publishing
+// early, and it stops this provider from signing off on a measurement that has
+// not happened yet. It does NOT verify anything by itself: the height has to
+// come from somewhere, and a provider with no chain source is trusting the
+// buyer's number. That is said out loud in every settlement this route returns,
+// under `heightSource`, because a check that quietly degrades into a formality
+// is worse than no check — it reads as verified.
 
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -35,6 +50,7 @@ import { resolve } from "node:path";
 
 import { providerTerms, acceptOrder, invoiceFor, markPaid, planDecoys, summarisePlan, orderSeed } from "../src/provider.mjs";
 import { parseWindowProof } from "../src/order.mjs";
+import { admitReveal } from "../src/reveal.mjs";
 import { mulberry32 } from "../src/rng.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -54,6 +70,27 @@ const TERMS = providerTerms({
   address: arg("address", null),
 });
 
+/**
+ * The height this provider believes the chain is at, or `null` if it has no
+ * source of its own.
+ *
+ * This matters for exactly one decision: whether a reveal may be published. The
+ * provider is the party that benefits from receiving a reveal early, so letting
+ * it settle on a height the buyer supplied is letting the interested party be
+ * the only witness. When `--at` is set, that number wins and the buyer's is
+ * ignored; when it is not, the settlement says out loud that the height came
+ * from the buyer — an unverified assertion, not a measurement.
+ *
+ * A real provider reads this from its own node. This reference one cannot: it
+ * is offline on purpose, and reaching a chain is the emitter's job.
+ */
+const AT = arg("at", process.env.RUIDO_AT ?? null);
+const PROVIDER_HEIGHT = AT === null ? null : Number(AT);
+if (AT !== null && !Number.isInteger(PROVIDER_HEIGHT)) {
+  console.error(`\n  --at must be a block number, got ${AT}\n`);
+  process.exit(1);
+}
+
 // A provider-held seed, random per run unless one is given. See `orderSeed` in
 // src/provider.mjs for what it does and does not buy.
 const PROVIDER_SEED = BigInt(arg("seed", `${Date.now()}${Math.floor(Math.random() * 1e6)}`));
@@ -64,6 +101,19 @@ const wire = (value) =>
 
 /** orderId -> { order, window, invoice, plan, state } */
 const orders = new Map();
+
+/**
+ * noteId -> the order id that claimed it, shared across every order this
+ * provider serves. The first-claim rule is what stops one batch of decoys being
+ * sold to every buyer who asks: windows overlap constantly, so a decoy landing
+ * in one buyer's cell usually lands in several others' too.
+ *
+ * Held here because a reference provider is one process with one memory. In a
+ * market with more than one provider this belongs somewhere both sides can see,
+ * and the provider being its own judge is the weakest part of the arrangement —
+ * see docs/ORDER.md.
+ */
+let CLAIMED = new Map();
 
 function send(response, status, body) {
   const payload = typeof body === "string" ? body : wire(body);
@@ -105,8 +155,13 @@ const server = createServer(async (request, response) => {
           order: "POST /orders  { order, windowProof }",
           payment: "POST /orders/:id/payment  { txHash, block }",
           status: "GET /orders/:id",
+          reveal: "POST /orders/:id/reveal  { reveal, atBlock, cell, observedDecoys? }",
         },
         note: "Send the order and the WINDOW proof. Sending the full reveal hands over the denomination, which is the one thing this split exists to protect.",
+        revealNote: "The reveal is the fourth step and is only accepted once the window has closed. Publishing it earlier hands the provider the rung before it emits, so the route refuses and says how many blocks are left.",
+        heightSource: PROVIDER_HEIGHT === null
+          ? "no --at given: this provider will settle on the height the buyer asserts, and will label the settlement as unverified"
+          : `pinned at block ${PROVIDER_HEIGHT} by --at; the buyer's number is ignored`,
       });
     }
 
@@ -137,6 +192,9 @@ const server = createServer(async (request, response) => {
         // work is what the buyer is paying for, and handing it over first makes
         // the invoice decorative.
         plan: record.state === "emitted" ? record.plan : null,
+        // A settled order keeps its verdict here. `state` alone cannot carry it:
+        // "revealed" does not say whether the bits arrived.
+        settlement: record.settlement ?? null,
       });
     }
 
@@ -196,6 +254,47 @@ const server = createServer(async (request, response) => {
       });
     }
 
+    // The fourth step. Everything before this was the buyer's side going out;
+    // this is the reveal coming back, and it is the one request in the protocol
+    // the provider must NOT have been given earlier.
+    //
+    // The decision itself is `admitReveal` in src/reveal.mjs, not here. A rule
+    // that lives inside a server cannot be tested without starting one, and this
+    // particular rule is the one the buyer's client enforces too — the two have
+    // to be the same code or they will drift.
+    const revealMatch = path.match(/^\/orders\/([0-9a-fx]+)\/reveal$/);
+    if (request.method === "POST" && revealMatch) {
+      const record = orders.get(revealMatch[1]);
+      if (!record) return send(response, 404, { error: "no such order" });
+
+      const body = await readJson(request);
+
+      // Where the height comes from. A provider with its own source uses it and
+      // ignores the buyer's; one without has to take the buyer's word, and the
+      // settlement says so rather than implying a check it did not run.
+      const atBlock = PROVIDER_HEIGHT ?? body.atBlock;
+      const heightSource = PROVIDER_HEIGHT === null ? "buyer" : "provider";
+
+      const admitted = admitReveal({
+        order: record.order,
+        state: record.state,
+        planned: record.plan?.length ?? 0,
+        settled: record.settlement ?? null,
+        body,
+        atBlock,
+        heightSource,
+        network: TERMS.network,
+        claimed: CLAIMED,
+      });
+
+      if (!admitted.ok) return send(response, admitted.status, admitted.body);
+
+      CLAIMED = admitted.claimed;
+      record.state = "revealed";
+      record.settlement = admitted.body;
+      return send(response, 200, admitted.body);
+    }
+
     return send(response, 404, { error: `no route for ${request.method} ${path}` });
   } catch (error) {
     return send(response, 400, { error: error.message });
@@ -209,7 +308,13 @@ server.listen(PORT, HOST, () => {
   console.log(`\n  GET  /terms`);
   console.log(`  POST /orders                { order, windowProof }`);
   console.log(`  POST /orders/:id/payment    { txHash, block }`);
-  console.log(`  GET  /orders/:id\n`);
+  console.log(`  GET  /orders/:id`);
+  console.log(`  POST /orders/:id/reveal     { reveal, atBlock, cell }   ← the fourth step\n`);
+  console.log(
+    PROVIDER_HEIGHT === null
+      ? `  no --at: the reveal route will settle on the buyer's block height and label\n  the settlement unverified. Pass --at <block> to pin it instead.\n`
+      : `  --at ${PROVIDER_HEIGHT}: the reveal route settles against this height and\n  ignores the one the buyer sends.\n`,
+  );
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

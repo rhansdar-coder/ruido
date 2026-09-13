@@ -36,6 +36,12 @@ The buyer's own transaction is unmodified — Ruido does not wrap it, proxy it, 
 sit in its path. Step 4 is the only step that needs a node, and it is the
 provider's, not the customer's.
 
+Six steps in the trade, but **four for the customer**, which is the same list
+seen from their side: measure (1), order (2), transact (5), reveal (6). Steps 3
+and 4 are the provider's, and the customer's only involvement in them is paying
+an invoice. The reveal client is `npm run reveal`, and it will not run before
+step 6's window has closed — see below.
+
 ## Step 2 and 3: what the provider is given
 
 The order carries the window **in the clear**, as a courtesy copy, because the
@@ -69,12 +75,26 @@ right way and the provider does not need to audit a number it cannot see.
 | `GET /terms` | — | network, ladder, fee per call, margin, address, cap |
 | `POST /orders` | `{ order, windowProof }` | `201` with the invoice, or `422` with the reason |
 | `POST /orders/:id/payment` | `{ txHash, block }` | the decoy plan, and `emitted` |
-| `GET /orders/:id` | — | state, invoice, and the plan **once paid** |
+| `GET /orders/:id` | — | state, invoice, the plan **once paid**, and the settlement **once revealed** |
+| `POST /orders/:id/reveal` | `{ reveal, atBlock, cell, observedDecoys? }` | the settlement, or `400` with the reason and, when the reveal is merely early, `waitBlocks` |
 
 `scripts/serve-provider.mjs` is that service on loopback, and
 `scripts/buy.mjs` is the client. What is deliberately missing from it: TLS,
 authentication, rate limiting, and a durable order book. Those are not the
 interesting part of the protocol, but a public provider needs all four.
+
+The last endpoint is the one that has to refuse. Its decision is not written in
+the service: it is `admitReveal` in `src/reveal.mjs`, so the rule the buyer's
+client enforces and the rule the provider enforces are the same code rather than
+two implementations that agree today. `scripts/serve-provider.mjs` translates
+its verdict into a status code and nothing else.
+
+The provider also has to know what block the chain is at, and it may not have a
+way to find out. `--at <block>` pins it; without it the provider settles on the
+height the buyer asserts and labels the settlement `heightSource: "buyer"` with
+a note saying it was not verified. A provider that quietly accepted the buyer's
+number while implying it had checked would be claiming a verification it did not
+perform — which is the same class of error as a stale figure.
 
 ## Step 2 is where the design lives: the split commitment
 
@@ -160,6 +180,37 @@ provider had the window from step 2 and still does not know which decoy was the
 buyer's — the plan draws every rung uniformly, so the rung it was never told
 stays indistinguishable from the ones it emitted.
 
+### When the reveal may be published, which is not "after you pay"
+
+The buyer keeps the reveal, and the reason they keep it is that publishing it
+early is worse than publishing it late. The provider was given the window and
+never the rung; that split is the only thing standing between the buyer and a
+provider that aims its cover at the buyer's own cell — or takes the fee and emits
+nothing. So the rule is not a judgement call:
+
+> the reveal is publishable once the chain's height is past the window's last
+> block, and not before.
+
+`npm run reveal --order <file>` is the client, and it refuses with the number of
+blocks left when it is early. Two details are load-bearing:
+
+**The window's last block is still the window.** A decoy can land in it, so
+`windowHasClosed` compares strictly greater than `window.to`. Off by one here is
+the difference between protecting the buyer and not, and it has its own test.
+
+**An unknown height is a refusal, not a pass.** If the height cannot be
+established the run exits non-zero. The tempting default — `atBlock ?? 0`, or
+"probably fine" — turns an unreachable RPC into a rung handed over early, which
+is silent and irreversible. `windowHasClosed` returns `null` for this case and
+`false` for "not yet", because the two lead to different actions and only one of
+them is a wait.
+
+Three outcomes stay distinct, and a single boolean would lose all of them:
+**wrong** (the reveal does not open the order — waiting does not help), **early**
+(it opens the order but the window is open — waiting helps, and `waitBlocks` says
+how long), and **unanswerable** (nobody can say — `waitBlocks` is `null`, not
+zero).
+
 Settlement reports two different numbers on purpose:
 
 - **emitted** — every decoy the provider presents. This is the work, and it is
@@ -169,6 +220,13 @@ Settlement reports two different numbers on purpose:
 
 They differ whenever the position is window-only, and collapsing them into one
 "payout" figure would hide a decision that belongs in a contract, not a library.
+
+What settlement counts is emissions that **landed**, never the plan. A note id
+only exists once an emission does, and the emitter is what puts one there, so
+today the honest count is zero and the settlement says so in its `emission`
+field rather than counting the plan as if the work were done. Counting the plan
+would credit the buyer for the provider's intention, which is the most expensive
+kind of green.
 
 ### The double-sell guard is the part that gets skipped
 
@@ -194,13 +252,15 @@ A failed settlement keeps its reason apart — `window-mismatch` versus
 | the order wire format | **built and tested**, including the JSON round trip |
 | the window proof a provider is given | **built and tested**, with its key set asserted |
 | settlement + the double-sell guard | **built and tested** |
-| a CLI a buyer can actually run | **built** — `npm run quote` prices, `npm run buy` places |
+| the reveal gate (early / wrong / unanswerable) | **built and tested** — `src/reveal.mjs` |
+| a CLI a buyer can actually run | **built** — `npm run quote` prices, `npm run buy` places, `npm run reveal` closes |
 | a provider that reads, prices and plans an order | **built** — `src/provider.mjs`, tested end to end |
 | a provider that **broadcasts** the plan | **not built.** This is the emitter, and it needs the local node. The plan is real; the emission is a stand-in |
 | a payment rail | **not built.** An invoice, a tx hash, and a checkable transfer. No escrow, no custody, no refund path — `TOKEN.md` §5 says run it invoiced or prepaid first |
 | an order book | **not built.** Nothing lists orders or matches them. A provider is reached by URL |
 | a provider worth trusting | **not built.** The reference is loopback-only, with no TLS, no auth and no rate limiting. It also learns **when** each buyer transacts, which is the position being sold and belongs in a written policy |
 | on-chain verification | **not built.** Settlement here runs on a JSON file, not on Starknet |
+| a provider's own view of the chain height | **not built.** `--at` pins one by hand; reading it needs the same node the emitter does, so today a settlement is labelled `heightSource: "buyer"` and says the height was not verified |
 
 ## Traps paid for
 
@@ -236,3 +296,19 @@ A failed settlement keeps its reason apart — `window-mismatch` versus
 8. **The heading states a count.** "Six ways in" is checked against the number of
    cards by a test, because a section that lists five and says six is a small
    claim that is not true — which in this project is the whole problem.
+9. **An idempotency check ordered after the state guard.** Settling moves the
+   record to `revealed`, so a guard that only admits `emitted` answers a
+   legitimate re-send with `409 the invoice is not paid, so there is nothing to
+   settle` — about an invoice that was paid, for an order that is already
+   settled. The duplicate check has to come **first**, and there is a test that
+   fails if it does not.
+10. **A reveal-shaped hole that throws instead of refusing.** `parseReveal` calls
+   `BigInt()` on four fields, so a window proof posted to the reveal route raises
+   a `TypeError` rather than being turned away — and the window proof is a strict
+   subset of the reveal, which makes it the natural mistake to make. A provider
+   that one malformed request can knock over is not a provider.
+11. **A `--json` mode that leaks the thing the gate protects.** Printing the
+   reveal on stdout regardless of the verdict would hand the rung over through
+   the very flag someone would reach for in order to script this step. The
+   machine path carries the reveal only once the check has passed, so the gate
+   holds in both paths rather than only in the one a human reads.
