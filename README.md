@@ -165,9 +165,9 @@ unusual and worth keeping.
 
 **Order: product, then usage, then token.** Run the market with no token first —
 invoiced, or prepaid in STRK. If nobody buys cover at cost, a token will not
-create demand. RDO exists to solve exactly one problem, paying anonymous
+create demand. RDO is designed to solve exactly one problem, paying anonymous
 cross-border providers per verified action, and it carries no revenue claim and
-no emissions for holding. The full design, including the commitment scheme that
+no emissions for holding. **It is not deployed, not minted and not for sale.** The full design, including the commitment scheme that
 stops one batch of decoys being sold twice, is in
 [`docs/TOKEN.md`](docs/TOKEN.md).
 

@@ -121,7 +121,7 @@ printed as a number rather than rounded away.
 | run a node or a prover | that is the operator's problem, and the reason the market exists |
 | hand over a key | the only key in the flow is the provider's, and it never leaves the provider's host |
 | route their transaction through Ruido | the customer's own wallet does that, unchanged |
-| hold RDO to be served | RDO is a fee discount. It is not a ticket and not a stake |
+| hold RDO to be served | RDO is not issued. It would be a fee discount, not a ticket and not a stake |
 | trust a number they cannot recompute | every figure is reproducible from public RPC |
 
 ---
