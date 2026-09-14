@@ -146,6 +146,42 @@ test("an offer with no cap is not an offer", () => {
   assert.throws(() => validateOffer({ ...offerFor("http://x"), maxDecoys: 0 }), /positive cap/);
 });
 
+test("terms that declare another version, or none, are refused rather than guessed at", () => {
+  // `margin` changed unit in provider version 2 — whole STRK before, base units
+  // now — so a v1 margin of 1 read by this reader quotes 2 STRK per decoy
+  // instead of 3: an undercharge of a third, arrived at silently, in the
+  // direction nobody reports. The version was already being copied onto the row,
+  // and copying a version is not reading it; this is the test that makes the
+  // refusal a fact rather than an intention.
+  const older = { ...termsFor(), providerVersion: 1 };
+  assert.throws(
+    () => offerFromTerms(older, { endpoint: "http://x" }),
+    /provider version 1/,
+    "a document that names a version this reader does not speak was accepted",
+  );
+
+  // Absent is not a synonym for "current". A provider that never declared a
+  // version is a provider whose margin unit is unknown, and the tempting default
+  // is the number that looks like an answer.
+  const silent = { ...termsFor() };
+  delete silent.providerVersion;
+  assert.throws(
+    () => offerFromTerms(silent, { endpoint: "http://x" }),
+    /provider version \(none\)/,
+    "a document with no declared version was accepted",
+  );
+
+  // The refusal has to name both versions, or an operator cannot tell which side
+  // has to move.
+  try {
+    offerFromTerms(older, { endpoint: "http://x" });
+    assert.fail("the terms were accepted");
+  } catch (error) {
+    assert.match(error.message, /speaks 2/);
+    assert.match(error.message, /unit of `margin` changed/);
+  }
+});
+
 // --- identity ---------------------------------------------------------------
 
 test("the endpoint is the identity, so re-registering replaces instead of duplicating", () => {
