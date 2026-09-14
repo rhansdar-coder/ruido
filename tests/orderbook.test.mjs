@@ -28,10 +28,17 @@ import {
   serialiseBook,
   parseBook,
 } from "../src/orderbook.mjs";
-import { providerTerms } from "../src/provider.mjs";
+import { providerTerms, invoiceFor } from "../src/provider.mjs";
 import { quote } from "../src/quote.mjs";
+import { UNIT } from "../src/pool.mjs";
 
 const ADDRESS = "0x0119f9a1e4e3f0f0c2a1b8d7e6f5a4b3c2d1e0f1a2b3c4d5e6f708192a3b4c5d";
+
+// A margin is in BASE UNITS per decoy and must be a multiple of 10^12, so the
+// payment tag has somewhere to live. 0.2 STRK on a 2 STRK pool fee is a 10% cut
+// — the kind of margin the field could not express at all while it was whole
+// STRK, when the only available cuts were 0%, 50% and 100%.
+const MARGIN = 2n * 10n ** 17n;
 
 const termsFor = (over = {}) => providerTerms({ network: "sepolia", address: ADDRESS, ...over });
 
@@ -66,8 +73,8 @@ test("a provider with no address is listed, and marked unpayable", () => {
 });
 
 test("a fee and a margin survive the round trip through the terms as felts", () => {
-  const offer = offerFor("http://x", { terms: { margin: 7n } });
-  assert.equal(offer.margin, 7n);
+  const offer = offerFor("http://x", { terms: { margin: MARGIN } });
+  assert.equal(offer.margin, MARGIN);
   assert.equal(typeof offer.feePerCall, "bigint");
 });
 
@@ -160,11 +167,37 @@ test("an offer is priced with the provider's own fee, not the network default", 
   assert.equal(a.cost, BigInt(a.decoys) * 2n);
 });
 
-test("the margin is added to the pool fee, and kept separate from it", () => {
-  const offer = offerFor("http://x", { terms: { margin: 11n } });
+test("the margin is charged per decoy, which is what the invoice charges", () => {
+  // This test used to assert `total === cost + margin`, and that assertion WAS
+  // the bug. The provider's invoice charges the margin per decoy — one
+  // `apply_actions` call per decoy, so one margin per decoy — while the book
+  // added it once. At an 11 STRK margin on a 14-decoy order the book quoted 39
+  // STRK against an invoice of 182: a 4.7× understatement, published as a price.
+  //
+  // Nothing caught it because the reference provider's margin is zero, and zero
+  // is the single value where adding once and adding per decoy agree. A test
+  // written against the implementation rather than against the invoice is how a
+  // bug gets a name and a green tick.
+  const offer = offerFor("http://x", { terms: { margin: MARGIN } });
   const priced = offerQuote(offer, { targetCell: 1.93, bits: 3, mode: "aimed" });
-  assert.equal(priced.margin, 11n);
-  assert.equal(priced.total, priced.cost + 11n);
+  assert.equal(priced.margin, MARGIN);
+  assert.equal(priced.marginTotal, MARGIN * BigInt(priced.decoys));
+  assert.equal(priced.total, priced.cost * UNIT + MARGIN * BigInt(priced.decoys));
+  assert.ok(priced.decoys > 1, "a one-decoy order is the case where the bug hides");
+});
+
+test("the book's total is the amount the provider's invoice asks for", () => {
+  // The two prices a buyer sees — the row in the book and the invoice that
+  // arrives — have to be the same number, or the market advertises one price and
+  // charges another. Checked against `invoiceFor` rather than against arithmetic
+  // repeated here, because arithmetic repeated here is what drifted.
+  const offer = offerFor("http://x", { terms: { margin: MARGIN } });
+  const priced = offerQuote(offer, { targetCell: 1.93, bits: 3, mode: "aimed" });
+  const invoice = invoiceFor(
+    { id: "0xabc", network: offer.network, decoys: priced.decoys },
+    termsFor({ margin: MARGIN }),
+  );
+  assert.equal(priced.total, invoice.amount, "the book and the invoice must agree on the price");
 });
 
 test("window-only costs the ladder width for the same bits, up to the rounding", () => {
@@ -199,7 +232,9 @@ test("the price of an offer is recomputed from the terms, never stored", () => {
   const small = offerQuote(offer, { targetCell: 1.93, bits: 1, mode: "aimed" });
   const large = offerQuote(offer, { targetCell: 1.93, bits: 5, mode: "aimed" });
   assert.notEqual(small.total, large.total);
-  assert.equal(small.total, quote({ targetCell: 1.93, bits: 1, mode: "aimed", feePerCall: 2n }).cost);
+  // `total` is in base units and `cost` is in whole STRK, because the pool
+  // charges whole STRK per call. With no margin the two agree once scaled.
+  assert.equal(small.total, quote({ targetCell: 1.93, bits: 1, mode: "aimed", feePerCall: 2n }).cost * UNIT);
 });
 
 test("an order over the provider's cap is flagged, not silently priced", () => {
@@ -338,10 +373,10 @@ test("the book has no parameter for a window anywhere in its API", () => {
 // --- the wire ---------------------------------------------------------------
 
 test("a book survives the round trip through JSON", () => {
-  const offers = [offerFor("http://a"), offerFor("http://b", { terms: { margin: 3n } })];
+  const offers = [offerFor("http://a"), offerFor("http://b", { terms: { margin: MARGIN } })];
   const back = parseBook(serialiseBook(offers));
   assert.equal(back.length, 2);
-  assert.equal(back[1].margin, 3n);
+  assert.equal(back[1].margin, MARGIN);
   assert.equal(back[0].feePerCall, 2n);
   assert.equal(typeof back[0].feePerCall, "bigint", "a felt that came back a string compares equal to nothing");
 });

@@ -35,6 +35,7 @@ import {
 } from "../src/order.mjs";
 import { providerTerms, acceptOrder, invoiceFor, markPaid, planDecoys, orderSeed } from "../src/provider.mjs";
 import { quote } from "../src/quote.mjs";
+import { UNIT } from "../src/pool.mjs";
 import { blocksUntilReveal, checkReveal, windowHasClosed, admitReveal, resolveHeight, heightNoteFor, HEIGHT_SOURCE, SETTLEABLE_STATES } from "../src/reveal.mjs";
 import { verifiedPayment } from "./support/paid-invoice.mjs";
 
@@ -533,7 +534,7 @@ test("the journey closes: measure → order → transact → reveal", () => {
   //    test stands in for, so the plan is built and never broadcast.
   const quoted = invoiceFor(sent.order, TERMS);
   const invoice = markPaid(quoted, verifiedPayment(quoted, { orderId: sent.order.id, block: FROM - 1 }));
-  assert.equal(invoice.amount, priced.cost);
+  assert.equal(invoice.amount, priced.cost * UNIT);
 
   const plan = planDecoys({
     window: accepted.window,

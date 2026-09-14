@@ -38,9 +38,24 @@
 import { DENOMINATIONS, FEE_PER_CALL } from "./cover.mjs";
 import { DOMAIN, hashFelt, networkId, verifyWindowProof } from "./commitment.mjs";
 import { ORDER_VERSION } from "./order.mjs";
+import { TAG_MOD } from "./payment.mjs";
+import { UNIT } from "./pool.mjs";
 import { randomInt } from "./rng.mjs";
 
-export const PROVIDER_VERSION = 1;
+/**
+ * Bumped to 2 when `margin` stopped being whole STRK.
+ *
+ * This is a unit change on a wire field, which is the dangerous kind: an offer
+ * whose margin was 1 STRK under v1 reads as 1 base unit under v2, so the price
+ * comes out at 2 STRK instead of 3 and nothing complains. Silent, and in the
+ * buyer's favour, which is the direction that never gets reported.
+ *
+ * A version that is only published is not a defence, so `offerFromTerms` in
+ * `src/orderbook.mjs` refuses a terms document that declares a different version
+ * — or none at all. A provider that does not say which unit its margin is in has
+ * not said which unit its margin is in, and unknown is a refusal.
+ */
+export const PROVIDER_VERSION = 2;
 
 /**
  * What a provider publishes about itself, before any order exists.
@@ -50,6 +65,20 @@ export const PROVIDER_VERSION = 1;
  * cannot check the quote. `margin` is the provider's own cut on top of the pool
  * fee; it defaults to zero because TOKEN.md §5 says to run this invoiced or
  * prepaid first and discover the margin, not to assume one.
+ *
+ * **`margin` is in BASE UNITS (10^-18 STRK) per decoy, and `feePerCall` is in
+ * whole STRK.** That asymmetry is deliberate and it is the only one in the
+ * protocol: the pool charges whole STRK per call, so the fee it charges is whole
+ * by nature, while a margin that could only be whole would be 0%, 50% or 100% on
+ * a 2 STRK fee and nothing in between — which is not a margin anyone would set.
+ * Quantising the margin to whole STRK quantises the business model to three
+ * points.
+ *
+ * The margin must be a multiple of `TAG_MOD` (10^12 base units, or 10^-6 STRK),
+ * because the payment rail writes its per-order tag into the low 12 digits of
+ * the amount. `invoiceFor` refuses a margin that does not leave that room rather
+ * than issuing an invoice that cannot be tagged. 10^-6 STRK of granularity is
+ * five parts in ten million of a 2 STRK fee, so the constraint is free.
  */
 export function providerTerms({
   network = "sepolia",
@@ -61,13 +90,21 @@ export function providerTerms({
   if (!Number.isInteger(ladder) || ladder < 1) {
     throw new Error(`a ladder needs at least one rung, got ${ladder}`);
   }
+  const cut = BigInt(margin);
+  if (cut < 0n) throw new Error(`a margin cannot be negative, got ${cut}`);
+  if (cut % TAG_MOD !== 0n) {
+    throw new Error(
+      `a margin must be a multiple of ${TAG_MOD} base units (10^-6 STRK) so the ` +
+        `payment tag has somewhere to live, got ${cut}`,
+    );
+  }
   return {
     providerVersion: PROVIDER_VERSION,
     orderVersion: ORDER_VERSION,
     network,
     ladder,
     feePerCall: FEE_PER_CALL[network] ?? FEE_PER_CALL.sepolia,
-    margin: BigInt(margin),
+    margin: cut,
     address,
     maxDecoys,
   };
@@ -136,10 +173,29 @@ export function deriveOrderId(order) {
  * whether an invoice was issued can both recompute it from the public order. The
  * amount is the pool fee the provider will actually pay — one `apply_actions`
  * call per decoy — plus whatever margin the terms declare.
+ *
+ * **`amount` is in base units.** It used to be whole STRK, and that is what
+ * forced `margin` to be whole STRK, which is what left a provider with exactly
+ * three prices: 2, 3 or 4 STRK per decoy, or a margin of 0%, 50% or 100%. The
+ * pool fee is still whole by nature and is scaled here rather than stored scaled,
+ * so `feePerCall` keeps the unit the pool actually quotes in and a reader who
+ * sees "2" is not left guessing whether that means 2 STRK or 2 base units.
+ *
+ * The amount is asserted to leave the low `TAG_MOD` digits free. It does
+ * whenever the margin does, because `feePerCall * UNIT` is a multiple of 10^18
+ * and therefore of 10^12 — so this is the margin's quantisation checked where the
+ * amount is made, rather than where the tag is applied, which is too late to say
+ * which term was wrong.
  */
 export function invoiceFor(order, terms) {
-  const perDecoy = terms.feePerCall + terms.margin;
+  const perDecoy = BigInt(terms.feePerCall) * UNIT + BigInt(terms.margin);
   const amount = BigInt(order.decoys) * perDecoy;
+  if (amount % TAG_MOD !== 0n) {
+    throw new Error(
+      `an invoice amount must leave the low ${TAG_MOD} base units free for the payment ` +
+        `tag, got ${amount}; the margin is ${terms.margin} base units per decoy`,
+    );
+  }
   return {
     id: hashFelt(DOMAIN.invoice, networkId(order.network), order.id, amount, order.decoys),
     orderId: order.id,

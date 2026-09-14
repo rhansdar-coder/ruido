@@ -72,7 +72,7 @@ right way and the provider does not need to audit a number it cannot see.
 
 | endpoint | body | returns |
 |---|---|---|
-| `GET /terms` | — | network, ladder, fee per call, margin, address, cap |
+| `GET /terms` | — | network, ladder, fee per call, margin, address, cap. `feePerCall` is in whole STRK; `margin` is in **base units** per decoy |
 | `POST /orders` | `{ order, windowProof }` | `201` with the invoice, or `422` with the reason |
 | `POST /orders/:id/payment` | `{ txHash, block }` | the decoy plan, and `emitted` |
 | `GET /orders/:id` | — | state, invoice, the plan **once paid**, and the settlement **once revealed** |
@@ -271,6 +271,7 @@ A failed settlement keeps its reason apart — `window-mismatch` versus
 | a provider that reads, prices and plans an order | **built** — `src/provider.mjs`, tested end to end |
 | a provider that **broadcasts** the plan | **not built.** This is the emitter, and it needs the local node. The plan is real; the emission is a stand-in |
 | a payment rail | **built and tested** — `src/payment.mjs`. Prepaid in STRK, with an amount **unique to the order** so a bare transfer binds to one, four verdicts instead of two, and a first-claim registry so one transfer cannot pay twice. No escrow, no custody, no refund path — `TOKEN.md` §5 says run it invoiced or prepaid first. See below |
+| a coordination fee for Ruido | **not built, and designed below.** No rate is set, no address is published, and nothing in this repository charges or receives anything |
 | an order book | **built and tested** — `src/orderbook.mjs`, `npm run serve:book`. It lists **offers, not orders**, and has no window parameter anywhere, so a buyer's cell cannot reach it. `npm run verify:book` drives it over HTTP |
 | a provider worth trusting | **built and tested** — `src/trust.mjs`. A bearer token on every route that costs money, `/terms` public so a book can list it, a limiter that runs *before* the token check, and a startup refusal to bind a public interface with no token. `npm run verify:trust` drives it over HTTP. Still no TLS, and it still learns **when** each buyer transacts |
 | on-chain verification | **not built.** Settlement here runs on a JSON file, not on Starknet. The *payment* is verified on-chain; the decoys are not |
@@ -312,8 +313,8 @@ hundred order ids produced 199 distinct tags. That is the birthday bound doing i
 arithmetic — at that width the chance of a collision among 200 orders is about
 86%, so collisions would be the *normal* case rather than the exception. Every
 collision is an honest buyer told their payment "already paid another order". At
-10^12 the chance among ten thousand concurrent orders is about 0.005%, which is
-10^-12 STRK — economically nothing against a 2 STRK pool fee.
+10^12 the chance among ten thousand concurrent orders is about 0.005%, and the
+width is 10^-6 STRK — economically nothing against a 2 STRK pool fee.
 
 Collisions are still possible in principle, and they still resolve by **refusal**
 rather than by miscrediting. The width makes them rare; it does not make them
@@ -359,6 +360,90 @@ from the wrong index looks like a number.
 The event is also checked to come **from the token contract**. An event with the
 right shape emitted by some other contract is not a transfer of this token, and a
 provider that matched on shape alone would credit payments it cannot spend.
+
+## The commission: how Ruido would be paid
+
+Nothing in this repository charges or receives a coordination fee. There is no
+rate, no address, no field and no code path — this section is a design, and it is
+written down because the answer is not obvious and the obvious answer is wrong.
+
+### It cannot be a slice of the buyer's payment
+
+The rail moves **one amount to one payee**, and it proves that by matching the
+exact figure. Tokens do not split on arrival. So:
+
+- A percentage withheld from what the buyer sends is not expressible. One
+  transfer, one destination, whole.
+- A contract that splits on receipt needs a deployment — which is precisely what
+  the three-ways list above was written to avoid, and it would put a contract back
+  between the buyer and the provider.
+- The provider collecting everything and owing Ruido a share is not a payment. It
+  is a **receivable**, which is a different instrument with a different risk
+  whoever holds it.
+
+So the commission is **a second transfer on the same rail**, and the machinery is
+already here: `paymentRequest(invoice, { orderId, provider })` takes the payee as
+an argument, and `verifyPayment` refuses any transfer not addressed to its own
+payee. A second leg is a second instance of the existing rail, not a new
+mechanism. The tag comes from the order id, so both legs carry the same tag and
+both bind to the same order — while the amounts differ, which is what keeps the
+two apart.
+
+### Who sends the second leg
+
+| | the buyer pays both legs | the provider forwards |
+|---|---|---|
+| transactions the buyer signs | **two** | one |
+| what the buyer must know | both addresses, plus the fee schedule | the provider's address |
+| Ruido's receipt | direct, at once | a receivable until it is forwarded |
+| who can defect | the buyer skips Ruido's leg — and the order completes anyway unless the **provider** checks for it | the provider keeps the fee |
+| can Ruido detect the defection? | **no.** It cannot see which orders were placed | **yes.** Every forwarding is a transfer on a public rail |
+
+**The provider forwards, and the last row is why.** A check a provider is
+motivated to skip is not an enforcement mechanism: a provider that stopped
+verifying the buyer's second leg would make its own orders cheaper and nobody
+could tell. A forwarding, by contrast, is a public fact. Ruido can read every
+transfer to its own address and compare it against the orders it knows about —
+and it knows about them, because step 6 publishes the order id. Non-payment is
+then a **publishable finding** rather than an invisible one, and delisting from
+the book is the remedy.
+
+That is retroactive, not preventive, and it is the honest limit of the
+arrangement. What it buys: the buyer's flow stays **one payee and one
+transaction**, which is the product's shape — Ruido does not sit in the buyer's
+path. What it costs: the offer row has to **disclose** that its price includes a
+coordination fee. A price with an undisclosed cut inside it is a price a buyer
+cannot compare against another provider's, and being comparable is what the book
+is for.
+
+### What the fee is a fraction of, and its unit
+
+A fraction of the provider's invoice:
+
+```
+fee = floor(invoice.amount × coordinationFeeBps / 10_000 / TAG_MOD) × TAG_MOD
+```
+
+Written as arithmetic rather than as "5%", because two implementations of "5%"
+that round differently disagree about the amount and the buyer is who finds out.
+It is floored, so the rounding never charges more than the stated rate, and
+quantised to `TAG_MOD` because the second leg needs the same room for its tag
+that the first one does.
+
+This is also why the invoice had to move to base units. A 5% cut of a whole-STRK
+invoice is not a whole number of STRK, so a commission was **not expressible at
+all** while every amount was whole — the same constraint that left a provider's
+own margin expressible only as 0%, 50% or 100%.
+
+### What is not built
+
+| | |
+|---|---|
+| `coordinationFeeBps` | **not set.** No rate is published, so no provider could compute one |
+| a receiving address | **not published.** Ruido has no address anywhere in this repository |
+| the second `paymentRequest` | **not written.** The rail supports it; nothing calls it |
+| the reconciliation | **not written.** Nothing reads Ruido's own transfers and compares them to revealed orders |
+| the disclosure in the offer row | **not written.** `offerFromTerms` copies a fixed set of fields and a fee is not among them |
 
 ## Traps paid for
 

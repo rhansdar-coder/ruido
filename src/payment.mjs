@@ -27,7 +27,7 @@
 //   a per-order unique amount  needs nothing
 //
 // So the invoice asks for an amount unique to the order and the provider matches
-// on the exact value. The tag is a few base units — 10^-14 STRK at the default
+// on the exact value. The tag is a few base units — 10^-6 STRK at the default
 // width — and it is derived from a HASH of the order id rather than from the id
 // itself, so the amount paid does not disclose the order it pays.
 //
@@ -58,7 +58,7 @@
 import { DOMAIN, hashFelt } from "./commitment.mjs";
 import { keccak256 } from "./keccak.mjs";
 import { endpointsFor } from "./blockheight.mjs";
-import { STRK_TOKEN, STRK_DECIMALS, UNIT } from "./pool.mjs";
+import { STRK_TOKEN, STRK_DECIMALS } from "./pool.mjs";
 
 /**
  * The asset the rail settles in, and its scale — re-exported, not declared.
@@ -84,7 +84,7 @@ export { STRK_TOKEN, STRK_DECIMALS, UNIT } from "./pool.mjs";
  * every one of them is a legitimate buyer being told their payment "already paid
  * another order". A width that collides is a width that refuses honest money.
  *
- * 10^12 base units is 10^-12 STRK, which is economically nothing against a 2 STRK
+ * 10^12 base units is 10^-6 STRK, which is economically nothing against a 2 STRK
  * pool fee, and it puts the collision chance among ten thousand concurrent orders
  * at about 0.005%. Collisions are still possible in principle and still resolve
  * by refusal rather than by miscrediting (see the header) — this makes them rare,
@@ -95,8 +95,17 @@ export const TAG_MOD = 10n ** 12n;
 /** `starknet_keccak("Transfer")`, computed rather than pasted. */
 export const TRANSFER_SELECTOR = `0x${keccak256(Buffer.from("Transfer", "ascii")).toString("hex")}`;
 
-/** The amount to ask for, in whole STRK, before the tag. */
-export function wholeStrk(invoice) {
+/**
+ * The amount an invoice bills, in the token's base units — the unit the chain
+ * moves, and the unit the tag is denominated in.
+ *
+ * This used to be `wholeStrk`, which multiplied by `UNIT` and so required every
+ * invoice to be a whole number of STRK. The requirement was invisible until it
+ * met a margin: on a 2 STRK pool fee the only whole-STRK margins are 0, 1 and 2,
+ * so a provider could charge 0%, 50% or 100% and nothing in between. Scaling
+ * here instead lets the invoice say what the work actually costs.
+ */
+export function baseAmount(invoice) {
   if (invoice.amount === undefined || invoice.amount === null) {
     throw new Error("an invoice without an amount cannot be paid");
   }
@@ -120,12 +129,17 @@ export function paymentTag(orderId, { mod = TAG_MOD } = {}) {
 /**
  * The exact amount the buyer must send, in the token's base units.
  *
+ * The invoice's own amount is already in base units and already leaves the low
+ * `TAG_MOD` digits free — `invoiceFor` refuses to make one that does not — so the
+ * tag is added rather than packed in. The two figures differ only below 10^-6
+ * STRK, which is the point: what the buyer pays discloses nothing about which
+ * order it pays that the tag does not already hide.
+ *
  * `tag` is injectable so that a collision can be constructed in a test rather
  * than waited for.
  */
-export function amountDue(invoice, { orderId, unit = UNIT, tag = null, mod = TAG_MOD } = {}) {
-  const base = wholeStrk(invoice) * unit;
-  return base + (tag ?? paymentTag(orderId, { mod }));
+export function amountDue(invoice, { orderId, tag = null, mod = TAG_MOD } = {}) {
+  return baseAmount(invoice) + (tag ?? paymentTag(orderId, { mod }));
 }
 
 /**
@@ -136,8 +150,12 @@ export function amountDue(invoice, { orderId, unit = UNIT, tag = null, mod = TAG
  * the amount here is the one with the tag in it — which is the only value that
  * will verify. Quoting `invoice.amount` to a buyer would produce a payment the
  * provider refuses.
+ *
+ * Both amounts are in base units and `decimals` says what a base unit is, because
+ * a wallet needs that and the mistake this field pair invites is scaling one of
+ * them and not the other.
  */
-export function paymentRequest(invoice, { orderId, provider, expiresAt = null, unit = UNIT, mod = TAG_MOD } = {}) {
+export function paymentRequest(invoice, { orderId, provider, expiresAt = null, mod = TAG_MOD } = {}) {
   if (!provider) throw new Error("a payment request needs a destination address");
   const tag = paymentTag(orderId, { mod });
   return {
@@ -149,9 +167,9 @@ export function paymentRequest(invoice, { orderId, provider, expiresAt = null, u
     provider,
     // Both figures, because they are both useful and confusing them is the
     // mistake: `amount` is what the invoice bills, `amountDue` is what to send.
-    amount: wholeStrk(invoice),
+    amount: baseAmount(invoice),
     tag,
-    amountDue: amountDue(invoice, { orderId, unit, tag }),
+    amountDue: amountDue(invoice, { orderId, tag }),
     expiresAt,
   };
 }

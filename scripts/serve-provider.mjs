@@ -3,7 +3,7 @@
 // an answer that runs rather than a paragraph that describes.
 //
 //   npm run serve:provider                 # listens on 127.0.0.1:8081
-//   npm run serve:provider -- --port 9000 --margin 1 --network sepolia
+//   npm run serve:provider -- --port 9000 --margin 0.2 --network sepolia
 //
 // The buyer's client is scripts/buy.mjs, and the whole exchange is exercised
 // offline by tests/provider.test.mjs. Nothing here touches a chain: accepting an
@@ -53,6 +53,7 @@ import { parseWindowProof } from "../src/order.mjs";
 import { admitReveal, resolveHeight, HEIGHT_SOURCE } from "../src/reveal.mjs";
 import { endpointsFor } from "../src/blockheight.mjs";
 import { paymentRequest, readReceipt, verifyPayment, consume } from "../src/payment.mjs";
+import { strkToBase, baseToStrk } from "../src/pool.mjs";
 import {
   assertBindable,
   tokenMatches,
@@ -113,7 +114,11 @@ const LIMIT_WRITE = makeLimiter({ perWindow: WRITE_RATE, windowMs: RATE_WINDOW_S
 
 const TERMS = providerTerms({
   network: arg("network", "sepolia"),
-  margin: BigInt(arg("margin", "0")),
+  // In STRK, parsed as digits rather than as a float, and stored as base units.
+  // `--margin 0.2` is a 10% cut on a 2 STRK pool fee; `--margin 2` would be a
+  // 100% one, which is the only kind of margin the old whole-STRK field could
+  // express below that.
+  margin: strkToBase(arg("margin", "0")),
   address: arg("address", null),
 });
 
@@ -540,7 +545,7 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`ruido provider — ${TERMS.network}, ${TERMS.ladder} rungs, ${TERMS.feePerCall} STRK/call, margin ${TERMS.margin}`);
+  console.log(`ruido provider — ${TERMS.network}, ${TERMS.ladder} rungs, ${TERMS.feePerCall} STRK/call, margin ${baseToStrk(TERMS.margin)} STRK/decoy`);
   console.log(`listening on http://${HOST}:${PORT}${BIND.exposed ? "  (REACHABLE FROM OUTSIDE)" : "  (loopback only)"}`);
   console.log(`project root ${ROOT}`);
   console.log(`\n  GET  /terms   GET /health                       ← public`);

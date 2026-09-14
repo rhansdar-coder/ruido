@@ -37,6 +37,7 @@ import { dirname } from "node:path";
 import { buildOrder, serialiseOrder, serialiseWindowProof, serialiseReveal } from "../src/order.mjs";
 import { quote } from "../src/quote.mjs";
 import { DENOMINATIONS } from "../src/cover.mjs";
+import { baseToStrk } from "../src/pool.mjs";
 import { mulberry32 } from "../src/rng.mjs";
 
 const argv = process.argv.slice(2);
@@ -252,7 +253,7 @@ rule("PROVIDER");
 line("network", terms.network);
 line("ladder", `${terms.ladder} rungs`);
 line("fee per call", `${terms.feePerCall} STRK`);
-line("margin", `${terms.margin} STRK`);
+line("margin", `${baseToStrk(terms.margin)} STRK per decoy`);
 
 rule("ORDER  (public)");
 line("id", order.id);
@@ -270,7 +271,7 @@ line("denomination", "NOT SENT — kept until the window closes");
 
 rule("INVOICE");
 line("invoice id", reply.invoice.id);
-line("amount", `${reply.invoice.amount} STRK`);
+line("amount", `${baseToStrk(reply.invoice.amount)} STRK`);
 line("for", `${reply.invoice.decoys} decoys at ${reply.invoice.feePerCall} STRK/call`);
 line("state", reply.duplicate ? "already invoiced — this order id was seen before" : "accepted");
 line("pay", `POST ${PROVIDER}/orders/${order.id}/payment  { "txHash": "0x…" }`);

@@ -22,6 +22,7 @@ import assert from "node:assert/strict";
 
 import { mulberry32 } from "../src/rng.mjs";
 import { DENOMINATIONS, FEE_PER_CALL } from "../src/cover.mjs";
+import { UNIT } from "../src/pool.mjs";
 import {
   buildOrder,
   serialiseOrder,
@@ -200,19 +201,31 @@ test("an order asking for zero bits is refused", () => {
 test("the invoice is priced per decoy and its id is derived from the order", () => {
   const { order } = buyer();
   const invoice = invoiceFor(order, TERMS);
-  assert.equal(invoice.amount, BigInt(order.decoys) * FEE_PER_CALL.sepolia);
+  assert.equal(invoice.amount, BigInt(order.decoys) * FEE_PER_CALL.sepolia * UNIT);
   assert.equal(invoice.orderId, order.id);
   // Derived, so two parties who disagree about whether an invoice was issued can
   // both recompute it from the public order.
   assert.equal(invoiceFor(order, TERMS).id, invoice.id);
 });
 
-test("a margin is charged on top of the pool fee and shows up in the amount", () => {
+test("a margin is charged per decoy on top of the pool fee, and shows up in the amount", () => {
   const { order } = buyer();
-  const withMargin = providerTerms({ network: NETWORK, margin: 1n });
+  // 0.2 STRK per decoy, which is a 10% cut on a 2 STRK pool fee. A whole-STRK
+  // margin could only ever have been 0%, 50% or 100% — so the field could not
+  // express the margin a business would actually set.
+  const margin = 2n * 10n ** 17n;
+  const withMargin = providerTerms({ network: NETWORK, margin });
   const invoice = invoiceFor(order, withMargin);
-  assert.equal(invoice.amount, BigInt(order.decoys) * (FEE_PER_CALL.sepolia + 1n));
-  assert.equal(invoice.margin, 1n);
+  assert.equal(invoice.amount, BigInt(order.decoys) * (FEE_PER_CALL.sepolia * UNIT + margin));
+  assert.equal(invoice.margin, margin);
+});
+
+test("a margin that would collide with the payment tag is refused", () => {
+  // The tag lives in the low 12 digits of the amount, so a margin that puts
+  // digits there is an amount that cannot be tagged. Refused where the amount is
+  // made, rather than at the rail where it is too late to name the term at fault.
+  assert.throws(() => providerTerms({ network: NETWORK, margin: 1n }), /multiple of/);
+  assert.throws(() => providerTerms({ network: NETWORK, margin: -1n }), /cannot be negative/);
 });
 
 test("an invoice cannot be paid twice", () => {
@@ -333,7 +346,7 @@ test("the whole trade closes offline: commit, accept, invoice, pay, plan, settle
   //    what "paid" means now. A bare transaction hash is refused.
   const quoted = invoiceFor(onWire.order, TERMS);
   const invoice = markPaid(quoted, verifiedPayment(quoted, { orderId: onWire.order.id, block: FROM - 1 }));
-  assert.equal(invoice.amount, priced.cost);
+  assert.equal(invoice.amount, priced.cost * UNIT);
 
   // 4. It plans the decoys — still nothing on chain.
   const plan = planDecoys({ window: accepted.window, decoys: onWire.order.decoys, next: mulberry32(orderSeed(99n, order.id)) });

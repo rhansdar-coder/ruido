@@ -19,7 +19,7 @@ import {
   TAG_MOD,
   TRANSFER_SELECTOR,
   SETTLED_FINALITY,
-  wholeStrk,
+  baseAmount,
   paymentTag,
   amountDue,
   paymentRequest,
@@ -122,7 +122,9 @@ test("a tag needs somewhere to live", () => {
 
 test("amountDue is in the token's base units and carries the tag", () => {
   const invoice = invoiceForOrder({ decoys: 3 });
-  assert.equal(wholeStrk(invoice), 6n); // three decoys at the 2 STRK pool fee
+  // Three decoys at the 2 STRK pool fee. The invoice is already in base units;
+  // it used to be whole STRK and this line had to scale it.
+  assert.equal(baseAmount(invoice), 6n * UNIT);
   const tag = paymentTag(ORDER_ID);
   assert.equal(amountDue(invoice, { orderId: ORDER_ID }), 6n * UNIT + tag);
 });
@@ -134,7 +136,7 @@ test("two orders quoting the same fee are still paid differently", () => {
 });
 
 test("an invoice without an amount cannot be priced", () => {
-  assert.throws(() => wholeStrk({ id: "0x1" }), /cannot be paid/);
+  assert.throws(() => baseAmount({ id: "0x1" }), /cannot be paid/);
 });
 
 // --- the request ---------------------------------------------------------
@@ -142,7 +144,7 @@ test("an invoice without an amount cannot be priced", () => {
 test("a payment request names both the billed amount and the amount due", () => {
   const invoice = invoiceForOrder({ decoys: 2 });
   const request = paymentRequest(invoice, { orderId: ORDER_ID, provider: PROVIDER });
-  assert.equal(request.amount, 4n, "the invoice bills four STRK");
+  assert.equal(request.amount, 4n * UNIT, "the invoice bills four STRK, in base units");
   assert.equal(request.amountDue, 4n * UNIT + request.tag, "and the tag is added to what is sent");
   assert.notEqual(request.amount, request.amountDue, "the two figures are different and confusing them is the mistake");
   assert.equal(request.token, STRK_TOKEN);
@@ -347,7 +349,7 @@ test("the exact amount is required, to the base unit", () => {
   // This is the tag doing its job. A payment without the tag is not a payment for
   // this order, even though it is the amount the invoice bills.
   const { invoice, request } = requestFor();
-  const untagged = wholeStrk(invoice) * UNIT;
+  const untagged = baseAmount(invoice);
   const receipt = receiptWith({ transfers: [transferEvent({ value: untagged })] });
   const verdict = verifyPayment({ invoice, request, receipt });
   assert.equal(verdict.ok, false);

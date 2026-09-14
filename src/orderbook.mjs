@@ -60,6 +60,8 @@
 // client can label them instead of ranking on them.
 
 import { quote, MODES } from "./quote.mjs";
+import { PROVIDER_VERSION } from "./provider.mjs";
+import { UNIT } from "./pool.mjs";
 
 /**
  * Field names that must never appear in an offer, matched case-insensitively and
@@ -121,6 +123,22 @@ export function offerFromTerms(document, { endpoint, registeredAt = null } = {})
   // convention the protocol never had.
   const terms = document.terms ?? document;
   if (!terms.network) throw new Error("the terms do not name a network");
+
+  // `margin` changed unit in provider version 2: whole STRK before, base units
+  // now. A v1 margin of 1 read here as 1 base unit quotes 2 STRK per decoy
+  // instead of 3 — an undercharge of a third, arrived at silently, in the
+  // direction nobody reports. So a document that declares a different version, or
+  // none, is refused rather than guessed at. An unknown unit is a refusal the
+  // same way an unknown block height is, and for the same reason: the tempting
+  // default is a number that looks like an answer.
+  const declared = terms.providerVersion ?? null;
+  if (declared !== PROVIDER_VERSION) {
+    throw new Error(
+      `the terms declare provider version ${declared ?? "(none)"}, and this reader speaks ` +
+        `${PROVIDER_VERSION} — the unit of \`margin\` changed between them, so a margin read ` +
+        `at the wrong version is wrong by 10^18`,
+    );
+  }
 
   const offer = {
     endpoint,
@@ -222,12 +240,27 @@ export function offerQuote(offer, { targetCell, bits, mode = "window" } = {}) {
     ladder: offer.ladder,
     feePerCall: BigInt(offer.feePerCall),
   });
+  // The provider's own cut, in BASE UNITS per decoy. Zero for the reference
+  // provider; a market price once there is more than one of them.
+  //
+  // Charged PER DECOY, which is what the pool fee already does and what the
+  // provider's own invoice does. It used to be added once here, which made the
+  // book quote less than the invoice would charge — by `margin × (decoys − 1)`,
+  // so by 4.7× at a 11 STRK margin on a 14-decoy order. Nothing caught it
+  // because the reference provider's margin is zero, and zero is the one value
+  // where adding once and adding per decoy agree; the test that pinned the
+  // behaviour asserted the behaviour.
+  const margin = BigInt(offer.margin ?? 0n);
+  const marginTotal = margin * BigInt(q.decoys);
+
   return {
     ...q,
-    // The provider's own margin on top of the pool fee. Zero for the reference
-    // provider; a market price once there is more than one of them.
-    margin: BigInt(offer.margin ?? 0n),
-    total: q.cost + BigInt(offer.margin ?? 0n),
+    margin,
+    marginTotal,
+    // `q.cost` is in whole STRK, because the pool charges whole STRK per call.
+    // `total` is what the buyer actually pays, so it is in base units — the only
+    // unit both parts can be added in.
+    total: q.cost * UNIT + marginTotal,
     overCap: q.decoys > offer.maxDecoys,
   };
 }

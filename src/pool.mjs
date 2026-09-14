@@ -89,5 +89,52 @@ export const STRK_TOKEN = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201
  */
 export const STRK_DECIMALS = 18;
 
-/** The base unit of STRK. An invoice is in whole STRK; the chain is in this. */
+/**
+ * The base unit of STRK.
+ *
+ * An invoice is in this unit, and so is the chain, and so is the payment tag.
+ * It used to be that an invoice was in whole STRK and this was only the chain's
+ * unit, which is what kept every price a whole number of STRK and left a
+ * provider able to charge 0%, 50% or 100% and nothing between. See `invoiceFor`
+ * in `src/provider.mjs`.
+ *
+ * The pool's own fee is still quoted in whole STRK, because the pool charges
+ * whole STRK per call — `FEE_PER_CALL` in `src/cover.mjs` is the one figure in
+ * the protocol that is whole by nature rather than by convention.
+ */
 export const UNIT = 10n ** BigInt(STRK_DECIMALS);
+
+/**
+ * A decimal STRK string, as base units — exactly.
+ *
+ * Exact rather than floating, and that is the whole reason this exists. `0.2` is
+ * representable as a double but `0.1` is not, and `Number("0.1") * 1e18` is
+ * 100000000000000000 only by luck of the rounding. A margin off by one base unit
+ * is a margin that fails `invoiceFor`'s multiple-of-10^12 check, and the operator
+ * would be looking at a number that prints identically to the one they meant.
+ *
+ * Digits, not floats. A margin is money, and money is counted.
+ */
+export function strkToBase(text) {
+  const s = String(text).trim();
+  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error(`not a STRK amount: ${text}`);
+  const [whole, frac = ""] = s.split(".");
+  if (frac.length > STRK_DECIMALS) {
+    throw new Error(`${text} has more than ${STRK_DECIMALS} decimals, which STRK does not have`);
+  }
+  return BigInt(whole) * UNIT + BigInt(frac.padEnd(STRK_DECIMALS, "0"));
+}
+
+/**
+ * Base units as a STRK string, for a human to read.
+ *
+ * Trims trailing zeros rather than padding to 18, because `2.000000000000000000`
+ * reads as a precision the figure does not have. A whole amount comes back
+ * without a decimal point at all.
+ */
+export function baseToStrk(base) {
+  const value = BigInt(base);
+  const whole = value / UNIT;
+  const frac = (value % UNIT).toString().padStart(STRK_DECIMALS, "0").replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole.toString();
+}
