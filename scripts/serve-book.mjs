@@ -21,6 +21,35 @@
 // on what came back, because a provider's own terms could carry a secret too,
 // and a check that only guards one of the two doors is not a check.
 //
+// ## The door, which is the same one the provider already has
+//
+// `src/trust.mjs` exists because a reference process on loopback did not need a
+// door and a process on a host does. The book has the same three problems, one
+// step earlier in the trade, so it takes the same three answers rather than
+// inventing a second set:
+//
+//   1. **Listing is closed.** A registration is not a row — it is a **URL this
+//      process will request**, and the row it produces is what a buyer will
+//      talk to. A buyer's first message to a provider carries the window they
+//      are paying to hide, so an open listing route is a stranger choosing who
+//      receives it. Reading stays public: a book that needed a token to browse
+//      is a book nobody uses, and the rows are a price list.
+//
+//   2. **Writes are limited harder than reads**, because a write is what makes
+//      the book open a socket to somewhere it did not choose.
+//
+//   3. **`--host 0.0.0.0` with no token is refused at startup**, not warned
+//      about. The operator of a book is the one who can leak every query it
+//      receives, and the software will not let them do that by accident.
+//
+// On top of those, the endpoint itself is checked. A registration naming a
+// loopback, private, link-local or non-http address is refused, and **link-local
+// is refused even when private addresses are allowed** — `169.254.169.254` is
+// where a cloud host answers with its own credentials, and that is not "my own
+// network", which is what `--allow-private` is for. The default is decided by
+// the bind: a book on loopback may fetch a provider on loopback, because that is
+// the normal local case, and a book on a public interface may not.
+//
 // ## What the book cannot do
 //
 // It cannot verify a claim. It re-reads the terms and notes whether the endpoint
@@ -29,6 +58,13 @@
 // trustworthy: a book is a single place that sees every query, which is a worse
 // position than any one provider occupies. That is why the query carries no
 // window — the book cannot correlate what it never learns.
+//
+// And it does not catch everything. The address check reads the URL's own host,
+// so **a name that resolves to a private address gets through** — closing that
+// needs resolve-then-connect, which is a different design. A token on the
+// listing route is what closes the anonymous case; the address check is what
+// stops the careless one. `src/trust.mjs` says the same thing where the check
+// lives, so the two cannot drift apart.
 
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -42,15 +78,76 @@ import {
   parseBook,
   serialiseBook,
 } from "../src/orderbook.mjs";
+import {
+  assertBindable,
+  tokenMatches,
+  bearerOf,
+  bookRequiresAuth,
+  makeLimiter,
+  clientKey,
+  isLoopback,
+  endpointRefusal,
+  BOOK_PUBLIC_ROUTES,
+  BOOK_NOTES,
+} from "../src/trust.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => {
   const i = argv.indexOf(`--${name}`);
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
 };
+const flag = (name) => argv.includes(`--${name}`);
 
 const PORT = Number(arg("port", process.env.PORT ?? 8082));
 const HOST = arg("host", "127.0.0.1");
+
+/**
+ * The token, and the bind guard that refuses to expose a book without one.
+ *
+ * Optional, because a book on loopback is a book for one operator and the smoke
+ * test runs it that way. It stops being optional the moment the socket is not
+ * loopback: `assertBindable` throws at startup, before the port exists, so an
+ * operator who types `--host 0.0.0.0` and forgets the token gets a refusal
+ * rather than an open listing service that a stranger finds first.
+ */
+const TOKEN = arg("token", process.env.RUIDO_BOOK_TOKEN ?? null);
+const BIND = assertBindable({
+  host: HOST,
+  token: TOKEN,
+  because:
+    "anyone who can reach the port could list an endpoint in it, and the buyer who " +
+    "picks that row hands over the window they are paying to hide",
+  open:
+    "GET /offers and GET /health are public by design so that a buyer can browse; " +
+    "listing a provider needs the token.",
+});
+
+/**
+ * Whether the book may fetch a provider on a private address.
+ *
+ * Decided by the bind, because the two are the same question asked twice: a book
+ * on loopback is a local book, and the provider it lists is normally local too —
+ * which is exactly what the smoke test does. A book on a public interface
+ * fetching loopback or RFC 1918 addresses is a book being used as a proxy into
+ * its own network. `--allow-private` and `--no-allow-private` override, for the
+ * operator who really does run a private provider behind a public book.
+ */
+const ALLOW_PRIVATE = flag("no-allow-private")
+  ? false
+  : flag("allow-private")
+    ? true
+    : isLoopback(HOST);
+
+/**
+ * The limiter, sized per route.
+ *
+ * Reads are generous because browsing is the product. Writes are strict because
+ * a write makes the book perform an outbound request, so the write budget is
+ * also the budget for how fast this process can be aimed at somebody else's
+ * network.
+ */
+const LIMIT_READ = makeLimiter({ perWindow: 240, windowMs: 60_000 });
+const LIMIT_WRITE = makeLimiter({ perWindow: 12, windowMs: 60_000 });
 
 /**
  * How long a row is trusted before the book re-reads the provider's terms.
@@ -78,7 +175,7 @@ function send(response, status, body) {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
     "access-control-allow-origin": "*",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type, authorization",
   });
   response.end(payload);
 }
@@ -103,8 +200,19 @@ const normalise = (endpoint) => String(endpoint).replace(/\/+$/, "");
  * so that "the provider is down" and "the provider publishes something it must
  * not" can be told apart — they are different status codes and different
  * problems, and a single try/catch collapses them into one.
+ *
+ * The address check is the third outcome and the reason the error is marked:
+ * "this book will not fetch that" is neither "the provider is down" nor "the
+ * provider publishes something unpublishable", and both callers have to be able
+ * to tell it from the other two.
  */
 async function fetchTerms(endpoint) {
+  const refusal = endpointRefusal(endpoint, { allowPrivate: ALLOW_PRIVATE });
+  if (refusal) {
+    const error = new Error(refusal);
+    error.refused = true;
+    throw error;
+  }
   const response = await fetch(`${normalise(endpoint)}/terms`, {
     signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
   });
@@ -118,31 +226,47 @@ function buildOffer(terms, endpoint) {
   return { ...offer, reachable: true, lastSeenAt: new Date().toISOString() };
 }
 
-/** True when a row is old enough that its price may no longer be the price. */
-const stale = (offer) => Date.now() - Date.parse(offer.lastSeenAt ?? 0) > TTL_MS;
+/**
+ * True when a row is old enough that its price may no longer be the price.
+ *
+ * A timestamp this cannot read counts as **stale, not fresh**. "We have never
+ * read this row" is not "we read it a moment ago", and the other direction is
+ * how a provider that died keeps a `reachable: true` it earned once and never
+ * has to earn again — a row that is listed, looks live, and is not.
+ */
+const stale = (offer) => {
+  const seen = Date.parse(offer.lastSeenAt ?? "");
+  return !Number.isFinite(seen) || Date.now() - seen > TTL_MS;
+};
 
 /**
  * Re-reads a stale row.
  *
- * Three outcomes, and they are not interchangeable:
+ * Four outcomes, and they are not interchangeable:
  *
  *   the same row, refreshed   the provider answered and its terms are publishable
  *   the row with `reachable: false`  the provider did not answer. Kept, because
  *                             "listed, not answering" is a different fact from
  *                             "nobody sells this" — the first tells a buyer to
  *                             come back, the second tells them to go elsewhere
- *   `null`                    the provider's terms became unpublishable. The row
- *                             is withdrawn: a provider that starts publishing a
- *                             buyer's cell loses its listing, which is the only
- *                             response that does not reward it
+ *   `null`                    the provider's terms became unpublishable, OR the
+ *                             endpoint is one this book will not fetch. The row
+ *                             is withdrawn either way: a provider that starts
+ *                             publishing a buyer's cell loses its listing, and
+ *                             so does an address that should never have been
+ *                             listed — which is the only response that does not
+ *                             reward it
  */
 async function refresh(offer) {
   if (!stale(offer)) return offer;
   let terms;
   try {
     terms = await fetchTerms(offer.endpoint);
-  } catch {
-    return { ...offer, reachable: false };
+  } catch (error) {
+    // A refused endpoint is withdrawn; a provider that did not answer keeps its
+    // row, flagged. "This book will not talk to that address" is not "come back
+    // later", and leaving it listed would keep it in front of buyers.
+    return error.refused ? null : { ...offer, reachable: false };
   }
   try {
     return buildOffer(terms, offer.endpoint);
@@ -158,12 +282,51 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === "OPTIONS") return send(response, 204, "");
 
+    // The limiter runs BEFORE the token check, and the order is the point: a
+    // caller guessing a token must be limited exactly as hard as a caller that
+    // has one, or the limiter is protection against the wrong party. Writes are
+    // limited harder than reads because a write is what makes the book fetch.
+    const writes = request.method === "POST" || request.method === "DELETE";
+    const verdict = (writes ? LIMIT_WRITE : LIMIT_READ).check(clientKey(request));
+    if (!verdict.ok) {
+      const seconds = Math.ceil(verdict.retryAfterMs / 1000);
+      response.setHeader("retry-after", String(seconds));
+      return send(response, 429, {
+        error: "too many requests",
+        retryAfterSeconds: seconds,
+        note: writes
+          ? "writes are limited harder than reads: a write is what makes the book open a socket to somewhere it did not choose"
+          : "reads are limited per client address; the address is taken from the socket, not from a header",
+      });
+    }
+
+    // Only the routes that write. Reading a book is the product, so it is open —
+    // and a book whose `/offers` needed a token would be a book nobody lists in.
+    if (TOKEN && bookRequiresAuth(request.method, path)) {
+      const given = bearerOf(request.headers.authorization);
+      if (!tokenMatches(given, TOKEN)) {
+        // 401 with the scheme named, so a client that forgot the header can tell
+        // that apart from a token that is wrong. `WWW-Authenticate` is what makes
+        // it a 401 rather than a 403.
+        response.setHeader("www-authenticate", 'Bearer realm="ruido-book"');
+        return send(response, 401, {
+          error: "this book needs a token to list a provider",
+          how: "send `authorization: Bearer <token>`",
+          public: [...BOOK_PUBLIC_ROUTES],
+        });
+      }
+    }
+
     if (request.method === "GET" && path === "/health") {
       return send(response, 200, {
         ok: true,
         offers: offers.size,
         reachable: [...offers.values()].filter((o) => o.reachable === true).length,
         bookVersion: 1,
+        // The posture, so an operator can see it rather than infer it from
+        // whether strangers are getting in.
+        authRequired: Boolean(TOKEN),
+        allowPrivate: ALLOW_PRIVATE,
       });
     }
 
@@ -238,9 +401,19 @@ const server = createServer(async (request, response) => {
       try {
         terms = await fetchTerms(body.endpoint);
       } catch (error) {
+        // A refused address is 400 and an unreachable provider is 502, and the
+        // two must not collapse: the first is about what the caller asked for
+        // and the second is about the provider. A buyer reading either needs to
+        // know which one they got.
+        if (error.refused) {
+          return send(response, 400, {
+            error: `this book will not fetch ${body.endpoint}`,
+            reason: error.message,
+            note: "a registration is a URL the book requests, so it has to be an address the book may request",
+          });
+        }
         // 502 rather than 400: the registration was well formed and the provider
-        // is the thing that failed. A buyer reading this needs to know it is the
-        // provider's problem, not theirs.
+        // is the thing that failed.
         return send(response, 502, {
           error: `could not read the terms of ${body.endpoint}`,
           reason: error.message,
@@ -286,6 +459,11 @@ const server = createServer(async (request, response) => {
         // same one the registration route makes between 400 and 502.
         return send(response, 400, { error: "this book will not load that file", reason: error.message });
       }
+      // The rows are loaded as they are, including one whose endpoint this book
+      // would refuse to fetch: the check happens at the fetch, so an imported
+      // row that should not be there is withdrawn on its first re-read rather
+      // than silently trusted. Rejecting the whole file would make one bad row
+      // hide every good one.
       for (const row of rows) offers.set(offerId(row), row);
       return send(response, 200, { imported: rows.length, offers: offers.size });
     }
@@ -307,6 +485,21 @@ server.listen(PORT, HOST, () => {
   console.log("  POST /offers                              { endpoint } — the book reads its terms");
   console.log("  GET  /export   POST /import               a book that outlives a process");
   console.log("  GET  /health\n");
+
+  console.log(
+    TOKEN
+      ? `  ${BOOK_NOTES.listing}\n  ${BOOK_NOTES.fetch}`
+      : "  No --token: listing is open. Fine on loopback; the bind guard refuses a\n" +
+          "  public interface without one. Reading is public either way.",
+  );
+  console.log(
+    ALLOW_PRIVATE
+      ? `  Fetching a private or loopback endpoint is ALLOWED (${flag("allow-private") ? "--allow-private" : "the book is on loopback"}).\n` +
+          "  Link-local is still refused: 169.254.169.254 is a cloud host's own credentials."
+      : "  Fetching a private or loopback endpoint is REFUSED. Pass --allow-private for a\n" +
+          "  provider on your own network.",
+  );
+  if (BIND.warning) console.log(`\n  ${BIND.warning}`);
 
   // Said at startup rather than left in a document, because the operator of a
   // book is the one who can leak every query it receives.

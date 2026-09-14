@@ -154,7 +154,7 @@ First deploy takes a minute or two. Reload the page after that.
 ## Step 6 · Check it
 
 ```bash
-npm test             # 367 tests must pass
+npm test             # 383 tests must pass
 npm run verify:journey   # the four steps over real HTTP, with a spawned provider
 npm run verify:book      # the book over real HTTP, with a real provider in it
 npm run verify:trust     # the provider's door: bind guard, token, limiter

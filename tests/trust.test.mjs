@@ -19,6 +19,11 @@ import {
   makeLimiter,
   clientKey,
   PUBLIC_ROUTES,
+  addressKind,
+  isPrivateHost,
+  endpointRefusal,
+  bookRequiresAuth,
+  BOOK_PUBLIC_ROUTES,
 } from "../src/trust.mjs";
 
 // --- what counts as this machine only ---------------------------------------
@@ -257,4 +262,172 @@ test("a socket with no address gets its own bucket, not a shared one", () => {
   const limiter = makeLimiter({ perWindow: 1, windowMs: 1000 });
   assert.equal(limiter.check(clientKey({}), 0).ok, true);
   assert.equal(limiter.check(clientKey({ socket: { remoteAddress: "1.1.1.1" } }), 0).ok, true);
+});
+
+// --- what an address is -----------------------------------------------------
+// The book fetches the endpoint it is handed, so a registration is a URL this
+// process will request. These are about the check that stops it being aimed at
+// its own host, its own network, or a cloud metadata service.
+
+test("an address is classified by what it is, not by whether it is private", () => {
+  // The kinds are not decoration: the fetch rule treats them differently, and
+  // the split is the point — link-local is refused even when private is allowed.
+  const cases = {
+    "127.0.0.1": "loopback",
+    localhost: "loopback",
+    "::1": "loopback",
+    "10.1.2.3": "private",
+    "172.16.0.1": "private",
+    "172.31.255.255": "private",
+    "192.168.1.1": "private",
+    "100.64.0.1": "private",
+    "fc00::1": "private",
+    "169.254.169.254": "link-local",
+    "fe80::1": "link-local",
+    "0.0.0.0": "unspecified",
+    "::": "unspecified",
+    "224.0.0.1": "reserved",
+    "8.8.8.8": "public",
+    "172.32.0.1": "public",
+    "provider.example": "name",
+  };
+  for (const [host, kind] of Object.entries(cases)) {
+    assert.equal(addressKind(host), kind, `${host} should be ${kind}`);
+  }
+  // 172.32 is outside 172.16/12 and 172.31 is inside it, which is the boundary a
+  // hand-written range check gets wrong in the direction that refuses a real
+  // provider. Both sides are asserted above for that reason.
+});
+
+test("an obfuscated loopback is still loopback, because the parser normalises it", () => {
+  // This is why the check reads the PARSED host rather than the string. `127.1`,
+  // `0x7f.0.0.1` and `2130706433` are all 127.0.0.1 to the URL parser, and a
+  // check on the raw text would wave every one of them through.
+  for (const url of ["http://127.1/", "http://0x7f.0.0.1/", "http://2130706433/"]) {
+    assert.match(endpointRefusal(url), /127\.0\.0\.1 is loopback/, url);
+  }
+});
+
+test("an IPv4-mapped IPv6 address is unwrapped, because the parser writes it in hex", () => {
+  // `::ffff:169.254.169.254` arrives as `::ffff:a9fe:a9fe`, so a check looking
+  // for a dotted quad would miss the metadata service entirely.
+  assert.match(endpointRefusal("http://[::ffff:a9fe:a9fe]/"), /link-local/);
+  assert.equal(endpointRefusal("http://[::ffff:8.8.8.8]/"), null);
+});
+
+test("the metadata service is refused even when private addresses are allowed", () => {
+  // The whole reason the classification is split rather than a boolean.
+  // `--allow-private` means "my own network" — loopback and RFC 1918 — and
+  // 169.254.169.254 is where a cloud host answers with its own credentials. A
+  // book that treated those as one question would hand out its instance role to
+  // whoever registered first.
+  const metadata = "http://169.254.169.254/latest/meta-data/";
+  assert.match(endpointRefusal(metadata), /link-local/);
+  assert.match(endpointRefusal(metadata, { allowPrivate: true }), /link-local/);
+  assert.match(endpointRefusal("http://[::ffff:a9fe:a9fe]/", { allowPrivate: true }), /link-local/);
+});
+
+test("a private address is refused by default and allowed on request", () => {
+  assert.match(endpointRefusal("http://10.0.0.1/"), /private address/);
+  assert.match(endpointRefusal("http://127.0.0.1:8080/"), /loopback/);
+  assert.equal(endpointRefusal("http://10.0.0.1/", { allowPrivate: true }), null);
+  assert.equal(endpointRefusal("http://127.0.0.1:8080/", { allowPrivate: true }), null);
+});
+
+test("an address nothing can be reached at is refused either way", () => {
+  for (const url of ["http://0.0.0.0/", "http://[::]/", "http://224.0.0.1/"]) {
+    assert.match(endpointRefusal(url), /not an address/, url);
+    assert.match(endpointRefusal(url, { allowPrivate: true }), /not an address/, url);
+  }
+});
+
+test("only http and https are fetched", () => {
+  // `file:` reads the book's own disk and `data:` is a shape with no host at
+  // all; both are one registration away if the scheme is not the first thing
+  // checked. The scheme test running first is also what makes the absence of a
+  // no-host branch in `endpointRefusal` correct rather than merely absent.
+  assert.match(endpointRefusal("file:///etc/passwd"), /only http and https/);
+  assert.match(endpointRefusal("gopher://x/"), /only http and https/);
+  assert.match(endpointRefusal("data:text/html,hi"), /only http and https/);
+});
+
+test("a URL carrying credentials is refused", () => {
+  // The credentials would be sent to whoever answers, which is the attacker.
+  assert.match(endpointRefusal("http://user:pw@example.com/"), /credentials/);
+});
+
+test("a public host is fetchable", () => {
+  assert.equal(endpointRefusal("https://provider.example/"), null);
+  assert.equal(endpointRefusal("http://8.8.8.8:8080/"), null);
+});
+
+test("a name that resolves to a private address gets through, and that is declared", () => {
+  // Not an oversight and not a passing grade: it is the documented limit of a
+  // check that reads the URL's own host. Catching it needs resolve-then-connect,
+  // which is a different design. The test exists so the gap is a fact with a
+  // test rather than a sentence in a comment.
+  assert.equal(endpointRefusal("http://evil.example/"), null);
+  assert.equal(addressKind("evil.example"), "name");
+});
+
+// --- the book's door --------------------------------------------------------
+// The same three problems as the provider, one step earlier in the trade: a
+// registration is what makes the book fetch, and the row it produces is what a
+// buyer talks to.
+
+test("browsing a book is public and listing in it is not", () => {
+  // A book that needed a token to browse is a book nobody lists in, and its rows
+  // are a price list. Writing is the closed half — and the METHOD is what makes
+  // that expressible at all, because `GET /offers` and `POST /offers` are the
+  // same path and must not get the same verdict.
+  assert.equal(bookRequiresAuth("GET", "/offers"), false);
+  assert.equal(bookRequiresAuth("GET", "/health"), false);
+  assert.equal(bookRequiresAuth("GET", "/export"), false);
+  assert.equal(bookRequiresAuth("POST", "/offers"), true);
+  assert.equal(bookRequiresAuth("POST", "/import"), true);
+});
+
+test("a book route that does not exist yet is closed by default", () => {
+  assert.equal(bookRequiresAuth("GET", "/nope"), true);
+  assert.equal(bookRequiresAuth("DELETE", "/offers"), true);
+});
+
+test("a preflight is not a request for the book either", () => {
+  assert.equal(bookRequiresAuth("OPTIONS", "/offers"), false);
+});
+
+test("the book's public list is the three readable routes, and nothing else", () => {
+  assert.deepEqual([...BOOK_PUBLIC_ROUTES].sort(), ["GET /export", "GET /health", "GET /offers"]);
+});
+
+test("the book's bind refusal says what the open door would cost", () => {
+  // The logic is the provider's; the prose is not, because what an open door
+  // costs is different. A provider that emits for strangers cannot pay for its
+  // own gas. A book that lists for strangers is handing them a buyer's window.
+  try {
+    assertBindable({
+      host: "0.0.0.0",
+      token: null,
+      because: "anyone who can reach the port could list an endpoint in it",
+      open: "GET /offers is public by design",
+    });
+    assert.fail("it was allowed");
+  } catch (error) {
+    assert.match(error.message, /anyone who can reach the port could list an endpoint in it/);
+    assert.match(error.message, /--token <secret>/);
+  }
+  const verdict = assertBindable({ host: "0.0.0.0", token: "s3cret", open: "GET /offers is public by design" });
+  assert.match(verdict.warning, /GET \/offers is public by design/);
+});
+
+test("the provider's wording is unchanged when the book's is not asked for", () => {
+  // Parameterising the prose must not have moved the provider's message: its
+  // operator reads it, and the tests above pin it. This is the test that fails
+  // if someone "improves" the default.
+  try {
+    assertBindable({ host: "0.0.0.0", token: null });
+    assert.fail("it was allowed");
+  } catch (error) {
+    assert.match(error.message, /every route that costs money would be open to anyone who can reach the port/);
+  }
 });
