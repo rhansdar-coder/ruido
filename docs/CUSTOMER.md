@@ -43,10 +43,31 @@ proof, and gets back an invoice. `npm run buy` is that client, and
 `npm run serve:provider` is a provider to point it at; both are in the
 repository and the exchange between them is tested without a chain.
 
-What the provider learns is **when** the customer transacts. That is the
-position being sold, it is why window-only is cheaper than aimed, and it is the
-central privacy cost of buying cover at all — worth writing down wherever a
-provider's policy lives.
+**Paying is the part that had to be designed rather than wired.** An ERC-20
+transfer carries no memo, so nothing on the chain says which order a payment was
+for — and a provider that credited a transfer on the strength of a transaction
+hash the buyer supplied would be accepting a form, not a payment. So the invoice
+quotes an amount **unique to the order**: the pool fee plus a tag derived from
+the order id. Sending exactly that figure to the provider's address is the whole
+of the proof, and the provider reads the receipt and answers with one of four
+verdicts rather than two:
+
+| verdict | what it means | what to do |
+|---|---|---|
+| `paid` | a transfer arrived, to this address, for exactly this amount | proceed |
+| `not-yet` | the transaction is in the sequencer and not yet in a block | wait — this is the **only** one worth waiting for |
+| `wrong` | reverted, never seen, not this provider, not this amount, or already spent | do not retry; the reason says which |
+| `unreadable` | the chain could not be read, so nobody can say | the operator's problem. It is a refusal, never a hopeful credit |
+
+One transfer pays one order. A first-claim registry holds every hash that has
+already settled something, because the tag makes an accidental collision
+vanishingly unlikely but makes a *deliberate* reuse — pay once, then present the
+same hash to a second order — trivial to attempt.
+
+What the provider learns is **when** the customer transacts. That is the position
+being sold, it is why window-only is cheaper than aimed, and it is the central
+privacy cost of buying cover at all — worth writing down wherever a provider's
+policy lives.
 
 ### 3. Transact — their own wallet, untouched
 
@@ -201,23 +222,24 @@ last one".
 | a client that closes the order | **live** — `npm run reveal`, the fourth step. Also tested with no chain |
 | the emitter | **not built** — see [`RUNBOOK-emitter.md`](RUNBOOK-emitter.md) |
 | a provider that **broadcasts** what it planned | **not built.** The plan is real; the emission is a stand-in for the emitter |
-| a payment rail | **not built.** An invoice, a tx hash, and a transfer someone checks. No escrow, no custody, no refunds — `TOKEN.md` §5 says run it invoiced or prepaid first |
-| an order book | **not built.** Nothing lists orders or matches them; a provider is reached by URL |
-| a provider worth trusting | **not built.** Loopback, no TLS, no auth, no rate limiting — and it learns **when** each buyer transacts |
+| a payment rail | **live** — `src/payment.mjs`. Prepaid in STRK, and the invoice quotes an amount **unique to the order** so that a bare transfer can be bound to one. The provider reads the receipt and answers in four verdicts, not two. No escrow, no custody, no refunds — `TOKEN.md` §5 says run it invoiced or prepaid first |
+| an order book | **live** — `src/orderbook.mjs`, `npm run serve:book`. It lists **offers**, not orders: there is no window parameter anywhere in its API, so a buyer's cell cannot reach it. Ranking is by what you pay for your size *and* your placement |
+| a provider worth trusting | **live** — `src/trust.mjs`. A bearer token for everything that costs money, `/terms` public so a book can list it, a limiter that runs **before** the token check, and a bind guard that refuses to listen on a public interface without a token. It still learns **when** each buyer transacts |
 | on-chain settlement | **not built.** Settlement runs on a JSON file, not on Starknet |
 | a provider's own view of the chain height | **live** — `--verify` reads it from the chain on every reveal, and **refuses** the settlement rather than falling back to the buyer's number when the read fails. It does not need the emitter's node; that was a separate thing |
 
-Nineteen rows, twelve live, one priced, six not built — and every live one was
+Nineteen rows, fifteen live, one priced, three not built — and every live one was
 built without a node, a chain, or a key. That is the point: **the customer's side
 of Ruido is finished and untested against reality at the same time**, because
 what was missing was never code.
 
-The gap is still not the emitter — the emitter is the *supply*. The gap is
-everything that turns a supply into a market: a provider that **broadcasts** what
-it planned, a way to pay that anyone would accept, and a book that lists orders.
-The provider's logic is now written and tested; what is left of it is the
-emission, which is the emitter's job, and the trust story, which is a policy
-rather than a library.
+The gap is now the emitter, and only the emitter. It is the *supply*, and
+everything above it has been built: a way to pay that clears, a book that lists
+supply without listing demand, and a provider that can be put on a host without
+being drained. What is left of the market is the one thing that needs the node —
+**an emission that is real** — plus the honest note that a provider still learns
+when its buyer transacts, which is the position being sold and belongs in any
+provider's written policy.
 
 ## What this changes about the order of work
 

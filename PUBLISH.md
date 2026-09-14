@@ -154,11 +154,20 @@ First deploy takes a minute or two. Reload the page after that.
 ## Step 6 · Check it
 
 ```bash
-npm test             # 243 tests must pass
+npm test             # 360 tests must pass
 npm run verify:journey   # the four steps over real HTTP, with a spawned provider
+npm run verify:book      # the book over real HTTP, with a real provider in it
+npm run verify:trust     # the provider's door: bind guard, token, limiter
 npm run measure      # prints M1, M3, anonymity sets, cost per bit
 npm run web          # dashboard at http://127.0.0.1:8080
 ```
+
+The three `verify:*` scripts are not interchangeable and none of them is
+redundant with `npm test`. The unit suite never opens a socket; each of these
+starts real processes and drives them over HTTP. `verify:journey` is the
+protocol, `verify:book` is the directory, and `verify:trust` is the door — and
+`verify:trust` is the one that would catch a change that left every unit test
+green while putting a provider on a host with its money routes open.
 
 If the public site and your local dashboard disagree, something is wrong — they
 run identical code. That is the point of the layout.

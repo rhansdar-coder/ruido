@@ -11,8 +11,9 @@
 import { readFileSync } from "node:fs";
 import { decodeCall, unwrapExecute, typeRegistry, decodeValue } from "../src/actions.mjs";
 import { selectorHex } from "../src/keccak.mjs";
+import { STRK20_POOL } from "../src/pool.mjs";
 
-const POOL = "0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91";
+const POOL = STRK20_POOL.sepolia;
 const RPC = "https://starknet-sepolia-rpc.publicnode.com";
 const APPLY = selectorHex("apply_actions");
 const norm = (s) => String(s).replace(/^0x0*/, "0x").toLowerCase();

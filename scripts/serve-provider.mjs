@@ -52,6 +52,17 @@ import { providerTerms, acceptOrder, invoiceFor, markPaid, planDecoys, summarise
 import { parseWindowProof } from "../src/order.mjs";
 import { admitReveal, resolveHeight, HEIGHT_SOURCE } from "../src/reveal.mjs";
 import { endpointsFor } from "../src/blockheight.mjs";
+import { paymentRequest, readReceipt, verifyPayment, consume } from "../src/payment.mjs";
+import {
+  assertBindable,
+  tokenMatches,
+  bearerOf,
+  requiresAuth,
+  makeLimiter,
+  clientKey,
+  PUBLIC_ROUTES,
+  TRUST_NOTES,
+} from "../src/trust.mjs";
 import { mulberry32 } from "../src/rng.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -66,6 +77,39 @@ const flag = (name) => argv.includes(`--${name}`);
 
 const PORT = Number(arg("port", process.env.PORT ?? 8081));
 const HOST = arg("host", "127.0.0.1");
+
+/**
+ * The token, and the bind guard that refuses to expose a provider without one.
+ *
+ * Checked before anything else happens, so an operator who types `--host 0.0.0.0`
+ * and forgets the token gets a refusal at startup rather than a provider that is
+ * found and drained. The guard is in `src/trust.mjs` rather than here because it
+ * is the kind of rule that has to be tested without starting a server.
+ */
+const TOKEN = arg("token", process.env.RUIDO_PROVIDER_TOKEN ?? null);
+let BIND;
+try {
+  BIND = assertBindable({ host: HOST, token: TOKEN });
+} catch (error) {
+  console.error(`\n  ${error.message}\n`);
+  process.exit(1);
+}
+
+/**
+ * The limiter, sized per route.
+ *
+ * Two limits rather than one, because the routes are not equally expensive: the
+ * payment route reads the chain, and the reveal route is the one that settles a
+ * trade. A buyer needs a handful of reads and exactly one of each of those, so a
+ * generous read limit and a tight write limit cost an honest client nothing and
+ * bound what a hostile one can make the provider do.
+ */
+const RATE_WINDOW_SECONDS = Number(arg("rate-window", process.env.RUIDO_RATE_WINDOW ?? 60));
+const READ_RATE = Number(arg("rate", process.env.RUIDO_RATE ?? 120));
+const WRITE_RATE = Number(arg("write-rate", process.env.RUIDO_WRITE_RATE ?? 20));
+
+const LIMIT_READ = makeLimiter({ perWindow: READ_RATE, windowMs: RATE_WINDOW_SECONDS * 1000 });
+const LIMIT_WRITE = makeLimiter({ perWindow: WRITE_RATE, windowMs: RATE_WINDOW_SECONDS * 1000 });
 
 const TERMS = providerTerms({
   network: arg("network", "sepolia"),
@@ -113,6 +157,18 @@ if (VERIFY && AT !== null) {
 const HEIGHT_MODE = VERIFY ? HEIGHT_SOURCE.PROVIDER : AT !== null ? HEIGHT_SOURCE.PINNED : HEIGHT_SOURCE.BUYER;
 const HEIGHT_ENDPOINTS = RPC_URL === null ? endpointsFor(TERMS.network) : [RPC_URL];
 
+/**
+ * Where payment receipts are read from.
+ *
+ * A separate knob from `--rpc` because they are separate questions, and a
+ * provider may well answer them with different machines: the height can come
+ * from any public endpoint and being wrong about it costs a refusal, while a
+ * receipt is the read that decides whether money arrived. `--payment-rpc`
+ * overrides; without it, payments read from wherever the height does.
+ */
+const PAYMENT_RPC = arg("payment-rpc", process.env.RUIDO_PAYMENT_RPC ?? null);
+const PAYMENT_ENDPOINTS = PAYMENT_RPC === null ? HEIGHT_ENDPOINTS : [PAYMENT_RPC];
+
 // A provider-held seed, random per run unless one is given. See `orderSeed` in
 // src/provider.mjs for what it does and does not buy.
 const PROVIDER_SEED = BigInt(arg("seed", `${Date.now()}${Math.floor(Math.random() * 1e6)}`));
@@ -136,6 +192,17 @@ const orders = new Map();
  * see docs/ORDER.md.
  */
 let CLAIMED = new Map();
+
+/**
+ * txHash -> the order id that paid with it.
+ *
+ * The payment counterpart of CLAIMED, and it exists for the same reason: one
+ * transfer must not pay two orders. At the tag width a collision cannot happen by
+ * accident, but it can be attempted on purpose — pay once, then present the same
+ * hash to a second order whose amount matches — and first-claim-wins is what
+ * stops it. Refused, never credited twice.
+ */
+let PAID_TX = new Map();
 
 function send(response, status, body) {
   const payload = typeof body === "string" ? body : wire(body);
@@ -169,16 +236,68 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === "OPTIONS") return send(response, 204, "");
 
+    // The limiter runs BEFORE the token check, and the order is the point: a
+    // caller guessing a token must be limited exactly as hard as a caller that
+    // has one, or the limiter is protection against the wrong party. Writes are
+    // limited harder than reads because they are what makes the provider spend.
+    const writes = request.method === "POST" || request.method === "DELETE";
+    const verdict = (writes ? LIMIT_WRITE : LIMIT_READ).check(clientKey(request));
+    if (!verdict.ok) {
+      const seconds = Math.ceil(verdict.retryAfterMs / 1000);
+      response.setHeader("retry-after", String(seconds));
+      return send(response, 429, {
+        error: "too many requests",
+        retryAfterSeconds: seconds,
+        note: writes
+          ? "writes are limited harder than reads: these are the requests that make the provider spend"
+          : "reads are limited per client address; the address is taken from the socket, not from a header",
+      });
+    }
+
+    if (TOKEN && requiresAuth(request.method, path)) {
+      const given = bearerOf(request.headers.authorization);
+      if (!tokenMatches(given, TOKEN)) {
+        // 401 with the scheme named, so a client that forgot the header can tell
+        // that apart from a token that is wrong. `WWW-Authenticate` is what makes
+        // it a 401 rather than a 403.
+        response.setHeader("www-authenticate", 'Bearer realm="ruido-provider"');
+        return send(response, 401, {
+          error: "this provider needs a token",
+          how: "send `authorization: Bearer <token>`",
+          public: [...PUBLIC_ROUTES].filter((p) => p !== "/"),
+        });
+      }
+    }
+
+    // Public, and it says counts and nothing else. An operator's monitoring and
+    // a book's reachability probe both need to ask "is this process up" without
+    // holding the token, and neither needs to learn anything by asking.
+    if (request.method === "GET" && path === "/health") {
+      return send(response, 200, {
+        ok: true,
+        orders: orders.size,
+        paid: [...orders.values()].filter((r) => r.invoice?.paid).length,
+        settled: [...orders.values()].filter((r) => r.settlement).length,
+        network: TERMS.network,
+        providerVersion: TERMS.providerVersion,
+        payable: Boolean(TERMS.address),
+        authRequired: Boolean(TOKEN),
+      });
+    }
+
     if (request.method === "GET" && (path === "/" || path === "/terms")) {
       return send(response, 200, {
         terms: TERMS,
         endpoints: {
           terms: "GET /terms",
           order: "POST /orders  { order, windowProof }",
-          payment: "POST /orders/:id/payment  { txHash, block }",
+          payment: "POST /orders/:id/payment  { txHash }",
           status: "GET /orders/:id",
           reveal: "POST /orders/:id/reveal  { reveal, atBlock, cell, observedDecoys? }",
         },
+        paymentNote: TERMS.address
+          ? `Prepaid in STRK. The invoice quotes an amount unique to THIS order; send exactly that figure to ${TERMS.address} and then post the transaction hash. A transfer without the tag is refused, an amount one base unit off is refused, and a hash that already paid another order is refused.`
+          : "This provider was started without --address, so it cannot be paid: a payment is checked by looking for a transfer to the provider's own account, and there is nothing to look for. The payment route answers 503.",
         note: "Send the order and the WINDOW proof. Sending the full reveal hands over the denomination, which is the one thing this split exists to protect.",
         revealNote: "The reveal is the fourth step and is only accepted once the window has closed. Publishing it earlier hands the provider the rung before it emits, so the route refuses and says how many blocks are left.",
         heightSource: {
@@ -215,10 +334,18 @@ const server = createServer(async (request, response) => {
         bits: record.order.bits,
         window: record.window,
         invoice: record.invoice,
-        // The plan is only released once the invoice is paid: the provider's
-        // work is what the buyer is paying for, and handing it over first makes
-        // the invoice decorative.
-        plan: record.state === "emitted" ? record.plan : null,
+        // What to SEND, re-derivable at any time. A buyer whose client lost the
+        // invoice response should not have to guess the tag, and a tag guessed
+        // wrong is a payment that gets refused — so the provider can always be
+        // asked again rather than the figure being remembered.
+        payment: TERMS.address
+          ? paymentRequest(record.invoice, { orderId: record.order.id, provider: TERMS.address })
+          : null,
+        // The plan is only released once the invoice is PAID — checked on the
+        // invoice rather than on a state name, because the fact is the fact and
+        // the name has already been wrong once. Handing the plan over before
+        // payment makes the invoice decorative.
+        plan: record.invoice.paid ? record.plan : null,
         // A settled order keeps its verdict here. `state` alone cannot carry it:
         // "revealed" does not say whether the bits arrived.
         settlement: record.settlement ?? null,
@@ -251,24 +378,98 @@ const server = createServer(async (request, response) => {
         plan: null,
         state: "invoiced",
       });
-      return send(response, 201, { accepted: true, duplicate: false, invoice, terms: TERMS });
+      return send(response, 201, {
+        accepted: true,
+        duplicate: false,
+        invoice,
+        // What to actually SEND, which is not the invoice's amount: the tag makes
+        // the figure unique to this order, and a transfer without it is refused.
+        payment: TERMS.address
+          ? paymentRequest(invoice, { orderId: body.order.id, provider: TERMS.address })
+          : null,
+        terms: TERMS,
+      });
     }
 
     const payMatch = path.match(/^\/orders\/([0-9a-fx]+)\/payment$/);
     if (request.method === "POST" && payMatch) {
       const record = orders.get(payMatch[1]);
       if (!record) return send(response, 404, { error: "no such order" });
-      if (record.state === "emitted") return send(response, 409, { error: "this order is already emitted" });
+
+      // A provider with no address cannot be paid, and cannot check a payment
+      // either: every verification is the question "did this transfer come TO
+      // ME". Refused rather than skipped, because a payment route that cannot
+      // verify is the form this rail replaced.
+      if (!TERMS.address) {
+        return send(response, 503, {
+          error: "this provider has no address, so it cannot verify a payment to itself",
+          reason: "start it with --address <starknet account>; an invoice it cannot check is not an invoice",
+        });
+      }
+
+      if (record.invoice.paid) {
+        // Idempotent: the same invoice paid twice is the same payment, and a
+        // buyer whose client retried should not be told something new.
+        return send(response, 200, {
+          id: record.order.id,
+          state: record.state,
+          paid: record.invoice.paid,
+          duplicate: true,
+        });
+      }
 
       const body = await readJson(request);
-      record.invoice = markPaid(record.invoice, body);
+      if (!body.txHash) return send(response, 400, { error: "a payment needs `txHash`" });
+
+      const quoted = {
+        ...paymentRequest(record.invoice, { orderId: record.order.id, provider: TERMS.address }),
+        txHash: body.txHash,
+      };
+
+      // Read the chain, then decide. The reading is kept separate from the
+      // verdict so that "nobody could read it" and "it says no" stay different
+      // answers — one is the operator's problem, the other is the buyer's.
+      const receipt = await readReceipt({
+        network: TERMS.network,
+        txHash: body.txHash,
+        endpoints: PAYMENT_ENDPOINTS,
+      });
+
+      const verdict = verifyPayment({
+        invoice: record.invoice,
+        request: quoted,
+        receipt,
+        consumed: PAID_TX,
+      });
+
+      if (!verdict.ok) {
+        // 409 for "not yet" — the money may still land, so try again. 402 for the
+        // two that will not change on their own: Payment Required is exactly what
+        // this is, and a buyer needs to know which of the ways it is wrong.
+        return send(response, verdict.status === "not-yet" ? 409 : 402, {
+          error: "the payment is not accepted",
+          verdict: verdict.status,
+          reason: verdict.reason,
+          expected: {
+            token: quoted.token,
+            provider: quoted.provider,
+            amountDue: quoted.amountDue,
+            tag: quoted.tag,
+          },
+        });
+      }
+
+      PAID_TX = consume(PAID_TX, verdict.payment);
+      record.invoice = markPaid(record.invoice, verdict);
 
       // Planning happens at payment, and emission would happen next. The plan is
-      // produced here so the shape can be inspected before any money is spent on
+      // produced here so its shape can be inspected before any money is spent on
       // gas — `summarisePlan` is the check that every decoy is inside the window.
       const next = mulberry32(orderSeed(PROVIDER_SEED, record.order.id));
       record.plan = planDecoys({ window: record.window, decoys: record.order.decoys, next });
-      record.state = "emitted";
+      // `paid`, not `emitted`. The old name claimed a chain that nothing had
+      // touched, in the same response that said `planned, NOT broadcast`.
+      record.state = "paid";
 
       return send(response, 200, {
         id: record.order.id,
@@ -276,7 +477,7 @@ const server = createServer(async (request, response) => {
         paid: record.invoice.paid,
         plan: record.plan,
         summary: summarisePlan(record.plan, { ladder: TERMS.ladder }),
-        // Said out loud so nobody reads "emitted" as "on chain".
+        // Said out loud so nobody reads "paid" as "emitted".
         emission: "planned, NOT broadcast — broadcasting needs the emitter and a local node",
       });
     }
@@ -340,13 +541,38 @@ const server = createServer(async (request, response) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`ruido provider — ${TERMS.network}, ${TERMS.ladder} rungs, ${TERMS.feePerCall} STRK/call, margin ${TERMS.margin}`);
-  console.log(`listening on http://${HOST}:${PORT}  (loopback only: this is a reference, not a deployment)`);
+  console.log(`listening on http://${HOST}:${PORT}${BIND.exposed ? "  (REACHABLE FROM OUTSIDE)" : "  (loopback only)"}`);
   console.log(`project root ${ROOT}`);
-  console.log(`\n  GET  /terms`);
+  console.log(`\n  GET  /terms   GET /health                       ← public`);
   console.log(`  POST /orders                { order, windowProof }`);
-  console.log(`  POST /orders/:id/payment    { txHash, block }`);
+  console.log(`  POST /orders/:id/payment    { txHash }`);
   console.log(`  GET  /orders/:id`);
   console.log(`  POST /orders/:id/reveal     { reveal, atBlock, cell }   ← the fourth step\n`);
+
+  // Said at startup, where an operator will actually read it, rather than left
+  // in a document nobody opens after the second week.
+  if (BIND.warning) console.log(`  ${BIND.warning}\n`);
+  console.log(
+    TOKEN
+      ? `  ${TRUST_NOTES.token}\n  ${TRUST_NOTES.terms}`
+      : "  No --token: every route is open. Fine on loopback; the bind guard refuses\n" +
+          "  this arrangement on any other interface, so you are only seeing it because\n" +
+          "  nothing outside this machine can reach the port.",
+  );
+  console.log(`\n  ${TRUST_NOTES.proxy}`);
+  console.log(
+    `\n  limits, per client address and from the socket rather than a header:\n` +
+      `    reads  ${READ_RATE}/${RATE_WINDOW_SECONDS}s   writes ${WRITE_RATE}/${RATE_WINDOW_SECONDS}s\n`,
+  );
+  console.log(
+    TERMS.address
+      ? `  paid in STRK to ${TERMS.address}\n` +
+          "  each invoice quotes an amount unique to its order; the route reads the chain and\n" +
+          "  refuses a transfer that is not to this address, not this amount, or already spent.\n"
+      : "  no --address: this provider cannot be paid. A payment is verified by looking for a\n" +
+          "  transfer to the provider's own account, so with none configured the payment route\n" +
+          "  answers 503 rather than recording a hash it cannot check.\n",
+  );
   console.log(
     {
       pinned: `  --at ${PROVIDER_HEIGHT}: the reveal route settles against this pinned height and\n  ignores the one the buyer sends.\n`,

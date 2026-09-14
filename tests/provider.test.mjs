@@ -41,6 +41,7 @@ import {
 } from "../src/provider.mjs";
 import { quote } from "../src/quote.mjs";
 import { claim, decoyInCell, settle } from "../src/settlement.mjs";
+import { verifiedPayment } from "./support/paid-invoice.mjs";
 
 const NETWORK = "sepolia";
 const CELL = 1.93;
@@ -216,16 +217,20 @@ test("a margin is charged on top of the pool fee and shows up in the amount", ()
 
 test("an invoice cannot be paid twice", () => {
   const { order } = buyer();
-  const paid = markPaid(invoiceFor(order, TERMS), { txHash: "0xabc", block: 1 });
-  assert.equal(paid.paid.txHash, "0xabc");
-  assert.throws(() => markPaid(paid, { txHash: "0xdef" }), /already paid/);
+  const invoice = invoiceFor(order, TERMS);
+  const paid = markPaid(invoice, verifiedPayment(invoice, { orderId: order.id }));
+  assert.equal(paid.paid.txHash, "0xpaid");
+  const again = verifiedPayment(invoice, { orderId: order.id, txHash: "0xdef" });
+  assert.throws(() => markPaid(paid, again), /already paid/);
 });
 
-test("a payment without a transaction hash is refused", () => {
-  // "Paid" has to mean "there is a transfer to check", or the invoice state is
-  // a boolean the provider sets for itself.
+test("only a verified payment can mark an invoice paid", () => {
+  // "Paid" has to mean "there is a transfer to check", or the invoice state is a
+  // boolean the provider sets for itself. The old shape — a bare hash — must
+  // throw rather than be recorded. tests/payment.test.mjs asserts the same thing
+  // from the rail's own side; this one asserts it from the provider's.
   const { order } = buyer();
-  assert.throws(() => markPaid(invoiceFor(order, TERMS), {}), /transaction hash/);
+  assert.throws(() => markPaid(invoiceFor(order, TERMS), { txHash: "0xabc", block: 1 }), /only be marked paid/);
 });
 
 // --- the plan -----------------------------------------------------------------
@@ -324,8 +329,10 @@ test("the whole trade closes offline: commit, accept, invoice, pay, plan, settle
   const accepted = acceptOrder(onWire.order, parseWindowProof(onWire.windowProof), { terms: TERMS });
   assert.equal(accepted.ok, true);
 
-  // 3. It invoices, and is paid.
-  const invoice = markPaid(invoiceFor(onWire.order, TERMS), { txHash: "0xpaid", block: FROM - 1 });
+  // 3. It invoices, and is paid — with a transfer that verifies, because that is
+  //    what "paid" means now. A bare transaction hash is refused.
+  const quoted = invoiceFor(onWire.order, TERMS);
+  const invoice = markPaid(quoted, verifiedPayment(quoted, { orderId: onWire.order.id, block: FROM - 1 }));
   assert.equal(invoice.amount, priced.cost);
 
   // 4. It plans the decoys — still nothing on chain.

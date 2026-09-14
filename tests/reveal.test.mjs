@@ -35,7 +35,8 @@ import {
 } from "../src/order.mjs";
 import { providerTerms, acceptOrder, invoiceFor, markPaid, planDecoys, orderSeed } from "../src/provider.mjs";
 import { quote } from "../src/quote.mjs";
-import { blocksUntilReveal, checkReveal, windowHasClosed, admitReveal, resolveHeight, heightNoteFor, HEIGHT_SOURCE } from "../src/reveal.mjs";
+import { blocksUntilReveal, checkReveal, windowHasClosed, admitReveal, resolveHeight, heightNoteFor, HEIGHT_SOURCE, SETTLEABLE_STATES } from "../src/reveal.mjs";
+import { verifiedPayment } from "./support/paid-invoice.mjs";
 
 const NETWORK = "sepolia";
 const CELL = 1.93;
@@ -65,20 +66,23 @@ function buyer({ seed = 1, rung = RUNG, from = FROM, width = WIDTH, bits = BITS,
 
 /**
  * The same order as the provider holds it at the moment the reveal arrives:
- * accepted, invoiced, paid, and planned. That is the state `emitted` — the name
- * says the plan exists, not that anything reached a chain.
+ * accepted, invoiced, paid, and planned. That is the state `paid` — which is
+ * what it is. It used to be called `emitted`, and that name was a claim about a
+ * chain nothing had touched: the response that said `planned, NOT broadcast` also
+ * said `emitted`. See SETTLEABLE_STATES in src/reveal.mjs.
  */
 function provider({ seed = 1, rung = RUNG, from = FROM, width = WIDTH, bits = BITS } = {}) {
   const b = buyer({ seed, rung, from, width, bits });
   const accepted = acceptOrder(b.order, parseWindowProof(serialiseWindowProof(b.reveal)), { terms: TERMS });
   assert.equal(accepted.ok, true, accepted.reason ?? "");
-  const invoice = markPaid(invoiceFor(b.order, TERMS), { txHash: "0xpaid", block: from - 1 });
+  const invoice = invoiceFor(b.order, TERMS);
+  const paid = markPaid(invoice, verifiedPayment(invoice, { orderId: b.order.id, block: from - 1 }));
   const plan = planDecoys({
     window: accepted.window,
     decoys: b.order.decoys,
     next: mulberry32(orderSeed(7n, b.order.id)),
   });
-  return { ...b, window: accepted.window, invoice, plan };
+  return { ...b, window: accepted.window, invoice: paid, plan };
 }
 
 /** The plan in the shape the chain hands back, which is what settlement reads. */
@@ -527,7 +531,8 @@ test("the journey closes: measure → order → transact → reveal", () => {
   // 3. TRANSACT — the wallet pays, and the spend lands inside the window. The
   //    provider emits next; that is the step that needs a node and the one this
   //    test stands in for, so the plan is built and never broadcast.
-  const invoice = markPaid(invoiceFor(sent.order, TERMS), { txHash: "0xpaid", block: FROM - 1 });
+  const quoted = invoiceFor(sent.order, TERMS);
+  const invoice = markPaid(quoted, verifiedPayment(quoted, { orderId: sent.order.id, block: FROM - 1 }));
   assert.equal(invoice.amount, priced.cost);
 
   const plan = planDecoys({

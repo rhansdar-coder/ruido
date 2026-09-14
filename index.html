@@ -521,16 +521,20 @@
         <p>Cover is a service, not a feature of this page. The buyer's client asks
         a provider for its terms, prices the order against the ladder the provider
         actually runs, and sends the order with the <b>window</b> half of the
-        reveal and never the denomination. The provider comes back with an
-        invoice. What it learns is the window — that is the position being sold:
-        it knows <b>when</b>, not how much. A reference provider and its client
-        are both in the repository, and the whole exchange is tested without a
-        chain.</p>
+        reveal and never the denomination. The provider comes back with an invoice
+        for an amount <b>unique to that order</b> — the pool fee plus a tag derived
+        from the order id, because an ERC-20 transfer carries no memo and a bare
+        transaction hash is a form, not a payment. It reads the receipt and answers
+        with one of four verdicts, and the one that matters is that a chain it
+        cannot read is a <b>refusal</b>, never a hopeful credit. What it learns is
+        the window — that is the position being sold: it knows <b>when</b>, not how
+        much. A book lists who is selling, and it lists <b>offers</b> rather than
+        orders, so a buyer's cell never reaches it.</p>
         <div class="acc-ms">
-          <div class="acc-m"><span>Auth</span><span class="live">none — an order, not a signature</span></div>
+          <div class="acc-m"><span>Auth</span><span class="live">a bearer token when the provider is on a host</span></div>
           <div class="acc-m"><span>Cost</span><span class="needs">the invoice · 190 STRK for 3 bits</span></div>
           <div class="acc-m"><span>Status</span><span class="needs">live offline · emission needs a node</span></div>
-          <div class="acc-m"><span>Entry</span><span>npm run buy</span></div>
+          <div class="acc-m"><span>Entry</span><span>npm run buy · npm run serve:book</span></div>
         </div>
       </div>
 

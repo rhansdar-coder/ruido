@@ -15,7 +15,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -539,6 +539,45 @@ test("the test count stated in the docs matches the tests that exist", () => {
   for (const s of stated) {
     assert.equal(s.value, actual,
       `${s.file} says "${s.text}" but ${actual} tests exist`);
+  }
+});
+
+// --- the same problem, one level down: a fact that is either right or wrong ---
+// The pool address was written into twelve scripts as a bare literal, under a
+// comment in one of them saying "Imported, not copied". A redeployment would have
+// been a change in twelve files, and the file that was missed would have kept
+// measuring the OLD pool while reporting the new one — a wrong number that looks
+// right. The literals now live in `src/pool.mjs` and nowhere else, and this is
+// what keeps them there: a fact with one correct value for the whole network has
+// exactly one home, and a second copy is the bug rather than a style question.
+
+test("the pool and token addresses have exactly one home", () => {
+  const ADDRESSES = [
+    "0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91", // STRK20, sepolia
+    "0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a", // STRK20, mainnet
+    "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d", // STRK
+  ];
+  const OWNER = "src/pool.mjs";
+
+  const offenders = [];
+  for (const dir of ["src", "scripts"]) {
+    for (const file of readdirSync(resolve(ROOT, dir)).filter((f) => f.endsWith(".mjs"))) {
+      const path = `${dir}/${file}`;
+      if (path === OWNER) continue;
+      const text = read(path);
+      for (const address of ADDRESSES) {
+        if (text.includes(address)) offenders.push(`${path} carries ${address.slice(0, 12)}…`);
+      }
+    }
+  }
+
+  assert.deepEqual(offenders, [], `a duplicated address is a second thing to update:\n  ${offenders.join("\n  ")}`);
+
+  // And the owner really does hold all three, so the check above cannot pass
+  // because the addresses were deleted everywhere.
+  const owner = read(OWNER);
+  for (const address of ADDRESSES) {
+    assert.ok(owner.includes(address), `${OWNER} lost ${address.slice(0, 12)}…`);
   }
 });
 

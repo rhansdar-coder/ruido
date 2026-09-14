@@ -423,7 +423,7 @@ npm run corpus:mainnet   # same, against mainnet</code></pre>
 
   <h2>Reproducing it</h2>
   <pre><code>git clone &lt;repo&gt; &amp;&amp; cd ruido
-npm test                  # 243 tests, no dependencies
+npm test                  # 360 tests, no dependencies
 npm run blocktimes        # measure the chains' block times live
 npm run corpus            # index the live STRK20 pool, decoding event payloads
 npm run measure:corpus    # measure it, including the denomination axis
@@ -437,9 +437,12 @@ npm run eth:index         # index a window of Ethereum
 npm run eth:measure
 npm run measure           # the synthetic model, seeded
 npm run quote             # price an order: bits, not decoys. Offline
-npm run serve:provider    # a reference provider, on loopback
+npm run serve:provider    # a reference provider. Loopback by default; any other
+                          # interface needs --token, and refuses to start without one
+npm run serve:book        # the order book: it lists offers, never orders
 npm run buy -- --provider http://127.0.0.1:8081 --cell 1.93 --bits 3 \
                --mode window --from 14865231 --denomination 10
+npm run verify:journey    # measure -> order -> pay -> reveal, over real HTTP
 npm run web               # view the dashboard</code></pre>
   <p>
     Requires Node 20 or later. Nothing else. The keccak implementation needed for

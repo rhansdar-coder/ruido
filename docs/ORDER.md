@@ -270,11 +270,95 @@ A failed settlement keeps its reason apart — `window-mismatch` versus
 | a CLI a buyer can actually run | **built** — `npm run quote` prices, `npm run buy` places, `npm run reveal` closes |
 | a provider that reads, prices and plans an order | **built** — `src/provider.mjs`, tested end to end |
 | a provider that **broadcasts** the plan | **not built.** This is the emitter, and it needs the local node. The plan is real; the emission is a stand-in |
-| a payment rail | **not built.** An invoice, a tx hash, and a checkable transfer. No escrow, no custody, no refund path — `TOKEN.md` §5 says run it invoiced or prepaid first |
-| an order book | **not built.** Nothing lists orders or matches them. A provider is reached by URL |
-| a provider worth trusting | **not built.** The reference is loopback-only, with no TLS, no auth and no rate limiting. It also learns **when** each buyer transacts, which is the position being sold and belongs in a written policy |
-| on-chain verification | **not built.** Settlement here runs on a JSON file, not on Starknet |
+| a payment rail | **built and tested** — `src/payment.mjs`. Prepaid in STRK, with an amount **unique to the order** so a bare transfer binds to one, four verdicts instead of two, and a first-claim registry so one transfer cannot pay twice. No escrow, no custody, no refund path — `TOKEN.md` §5 says run it invoiced or prepaid first. See below |
+| an order book | **built and tested** — `src/orderbook.mjs`, `npm run serve:book`. It lists **offers, not orders**, and has no window parameter anywhere, so a buyer's cell cannot reach it. `npm run verify:book` drives it over HTTP |
+| a provider worth trusting | **built and tested** — `src/trust.mjs`. A bearer token on every route that costs money, `/terms` public so a book can list it, a limiter that runs *before* the token check, and a startup refusal to bind a public interface with no token. `npm run verify:trust` drives it over HTTP. Still no TLS, and it still learns **when** each buyer transacts |
+| on-chain verification | **not built.** Settlement here runs on a JSON file, not on Starknet. The *payment* is verified on-chain; the decoys are not |
 | a provider's own view of the chain height | **built** — `--verify` reads it from the public endpoints on every reveal, and refuses rather than falling back when the read fails. It does NOT need the emitter's local node; that turned out to be a separate thing |
+
+## Paying: binding a transfer to one order
+
+The hardest small problem in the protocol, and worth stating because the obvious
+answer is wrong.
+
+**An ERC-20 transfer carries no memo.** So nothing on the chain says which order a
+payment was for. The tempting design is to let the buyer post the transaction
+hash and credit the order — and that is not a payment rail, it is a form. The
+provider would be recording a number the buyer chose, with no way to tell a real
+transfer from a hash of the word "paid".
+
+There are three ways to bind a transfer to an order:
+
+1. **A payment contract.** The buyer calls `pay(orderId)`. Needs a deployed
+   contract and a second transaction. Not this.
+2. **A per-order address.** The buyer sends to an address derived from the order
+   id. Needs a wallet that can derive addresses and a sweep. Not this.
+3. **A per-order amount.** The invoice quotes the pool fee **plus a tag** derived
+   from the order id. The buyer sends exactly that figure to the provider's own
+   address. Needs nothing deployed and no new transaction.
+
+This takes the third, because it is the only one that requires nothing to exist
+that does not already.
+
+### The tag is a hash, and its width is a correctness constraint
+
+The tag is `1 + (H("ruido.payment.v1", orderId) mod (10^12 − 1))` base units of
+STRK, derived in the same domain-separated scheme as everything else in the
+protocol so that "the tag is a hash of the order" is one convention rather than
+two.
+
+The width started at 10,000 and **a test found out why that was too narrow**: two
+hundred order ids produced 199 distinct tags. That is the birthday bound doing its
+arithmetic — at that width the chance of a collision among 200 orders is about
+86%, so collisions would be the *normal* case rather than the exception. Every
+collision is an honest buyer told their payment "already paid another order". At
+10^12 the chance among ten thousand concurrent orders is about 0.005%, which is
+10^-12 STRK — economically nothing against a 2 STRK pool fee.
+
+Collisions are still possible in principle, and they still resolve by **refusal**
+rather than by miscrediting. The width makes them rare; it does not make them
+impossible, and the difference is worth stating.
+
+### Four verdicts, not two
+
+`verifyPayment` answers with `status` ∈ {`paid`, `not-yet`, `wrong`, `unreadable`}
+because they lead to four different actions:
+
+| verdict | what it means | what a buyer does |
+|---|---|---|
+| `paid` | a `Transfer` from the token contract, to this provider, for exactly this amount | proceed |
+| `not-yet` | the receipt says `RECEIVED`: in the sequencer, not in a block | wait. **This is the only one that is a wait** |
+| `wrong` | reverted / never seen / not this token / not this provider / not this amount / already spent | do not retry. The reason names which of the six |
+| `unreadable` | the receipt could not be read from any endpoint | nothing. It is the operator's problem |
+
+`unreadable` is a **refusal**. A provider that credited a payment it could not
+read would be turning an outage into free cover, and the buyer would be the one
+who found out later.
+
+### One transfer pays one order
+
+A `txHash -> orderId` registry, shared across every order the provider serves.
+The tag makes an accidental collision vanishingly unlikely, which means the reuse
+this stops is the *deliberate* one: pay once, then present the same hash to a
+second order whose amount happens to match. First claim wins.
+
+Held in the provider's memory in the reference implementation. In a market with
+more than one provider it belongs somewhere both sides can see, and a provider
+being its own judge is the weakest part of the arrangement — the same weakness
+`CLAIMED` has, and for the same reason.
+
+### Reading the receipt, and the `u256` trap
+
+OZ's Cairo 1 ERC-20 emits `Transfer` with `value.low, value.high` — **two felts**.
+Reading `data[0]` alone silently truncates any amount above 2^128, which is every
+amount this protocol deals in. Legacy Cairo 0 tokens emitted a single felt, so
+both widths are accepted and the width is what decides. This is the same class of
+trap as `Withdrawal.amount` being `data[3]` rather than `data[0]`: a felt read
+from the wrong index looks like a number.
+
+The event is also checked to come **from the token contract**. An event with the
+right shape emitted by some other contract is not a transfer of this token, and a
+provider that matched on shape alone would credit payments it cannot spend.
 
 ## Traps paid for
 

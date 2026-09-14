@@ -46,6 +46,27 @@ const arg = (name, fallback) => {
 };
 const flag = (name) => argv.includes(`--${name}`);
 
+/**
+ * The provider's bearer token, if it has one.
+ *
+ * A reference provider on loopback does not; a provider on a host does, and the
+ * client has to be able to reach it. `fetch` is wrapped rather than a header
+ * threaded through each call site, so that a call added later cannot forget the
+ * token and fail in a way that looks like the provider being broken.
+ *
+ * The token is never written into the order file. That file is what step four
+ * reads, and a secret in it would be a secret on disk.
+ */
+const TOKEN = arg("token", process.env.RUIDO_PROVIDER_TOKEN ?? null);
+const call = (url, options = {}) =>
+  fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers ?? {}),
+      ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
+    },
+  });
+
 const PROVIDER = (arg("provider", process.env.RUIDO_PROVIDER ?? "http://127.0.0.1:8081")).replace(/\/+$/, "");
 const CELL = arg("cell", null);
 const BITS = Number(arg("bits", "3"));
@@ -96,7 +117,7 @@ const to = from + WIDTH;
 //    built against assumed terms is a quote against the wrong ladder.
 let terms;
 try {
-  const response = await fetch(`${PROVIDER}/terms`);
+  const response = await call(`${PROVIDER}/terms`);
   if (!response.ok) die(`${PROVIDER}/terms answered ${response.status}`);
   ({ terms } = await response.json());
 } catch (error) {
@@ -132,7 +153,7 @@ const proofOnWire = serialiseWindowProof(reveal);
 
 let reply;
 try {
-  const response = await fetch(`${PROVIDER}/orders`, {
+  const response = await call(`${PROVIDER}/orders`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ order: orderOnWire, windowProof: proofOnWire }),
@@ -160,13 +181,24 @@ const indent = (value) =>
 // strip the human report before parsing — which is how the two drift apart.
 let payment = null;
 if (TX) {
-  const response = await fetch(`${PROVIDER}/orders/${order.id}/payment`, {
+  const response = await call(`${PROVIDER}/orders/${order.id}/payment`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ txHash: TX, block: from }),
+    // Only the hash. The buyer's own block number is not evidence of anything —
+    // the provider reads the block from the receipt, and a client that asserted
+    // one would be the party that benefits from an early credit asserting it.
+    body: JSON.stringify({ txHash: TX }),
   });
   payment = await response.json();
-  if (!response.ok) die(`the payment was refused (${response.status}): ${payment.error ?? ""}`);
+  if (!response.ok) {
+    // Which class of refusal, what happened, and what to do about it — in that
+    // order, and all three printed. `not-yet` is worth retrying and `wrong` is
+    // not, so the verdict is named rather than folded into prose; and a refusal
+    // that carries a remedy (the 503 for a provider with no address) must not
+    // have its reason thrown away in favour of a generic sentence.
+    const parts = [payment.verdict, payment.error, payment.reason].filter(Boolean);
+    die(`the payment was refused (${response.status}): ${parts.join(" — ")}`);
+  }
 }
 
 const revealOnWire = serialiseReveal(reveal);

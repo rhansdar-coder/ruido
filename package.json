@@ -10,6 +10,7 @@
     "buy": "node scripts/buy.mjs",
     "reveal": "node scripts/reveal.mjs",
     "serve:provider": "node scripts/serve-provider.mjs",
+    "serve:book": "node scripts/serve-book.mjs",
     "blocktimes": "node scripts/block-times.mjs",
     "corpus": "node scripts/build-corpus.mjs",
     "corpus:mainnet": "node scripts/build-corpus.mjs --network mainnet --window 500000 --out data/corpus-mainnet.json",
@@ -21,6 +22,8 @@
     "verify:compile": "node scripts/verify-compile.mjs",
     "verify:encode": "node scripts/verify-encode.mjs",
     "verify:journey": "node scripts/smoke-journey.mjs",
+    "verify:book": "node scripts/smoke-book.mjs",
+    "verify:trust": "node scripts/smoke-trust.mjs",
     "check:screening": "node scripts/check-screening-scope.mjs",
     "check:invokes": "node scripts/check-invoke-targets.mjs",
     "check:abi": "node scripts/check-abi-types.mjs",
@@ -36,7 +39,7 @@
     "shots": "node scripts/screenshots.mjs",
     "site": "node scripts/build-site.mjs",
     "site:check": "node scripts/build-site.mjs --check",
-    "test": "node --test tests/ruido.test.mjs tests/keccak.test.mjs tests/collect.test.mjs tests/starknet-events.test.mjs tests/denomination.test.mjs tests/actions.test.mjs tests/order.test.mjs tests/provider.test.mjs tests/reveal.test.mjs tests/blockheight.test.mjs tests/site.test.mjs tests/dom-contract.test.mjs tests/robinhood.test.mjs"
+    "test": "node --test tests/ruido.test.mjs tests/keccak.test.mjs tests/collect.test.mjs tests/starknet-events.test.mjs tests/denomination.test.mjs tests/actions.test.mjs tests/order.test.mjs tests/provider.test.mjs tests/payment.test.mjs tests/orderbook.test.mjs tests/trust.test.mjs tests/reveal.test.mjs tests/blockheight.test.mjs tests/site.test.mjs tests/dom-contract.test.mjs tests/robinhood.test.mjs"
   },
   "engines": {
     "node": ">=20"

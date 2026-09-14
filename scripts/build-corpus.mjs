@@ -41,6 +41,7 @@ import {
 } from "../src/starknet-events.mjs";
 import { appendAll, blockRange } from "../src/collect.mjs";
 import { STARKNET_RPC } from "../src/blockheight.mjs";
+import { STRK20_POOL } from "../src/pool.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,11 +51,13 @@ const POOLS = {
     // block-time measurement and the reveal client; a public endpoint that
     // rotates out has to be fixed in one place or the fix half-lands.
     rpcs: STARKNET_RPC.sepolia,
-    pool: "0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91",
+    // Imported for the same reason the RPCs are. This line used to be a literal
+    // sitting directly under a comment saying "Imported, not copied".
+    pool: STRK20_POOL.sepolia,
   },
   mainnet: {
     rpcs: STARKNET_RPC.mainnet,
-    pool: "0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a",
+    pool: STRK20_POOL.mainnet,
   },
 };
 

@@ -14,8 +14,9 @@
 // EncUserAddr is a three-felt struct. Reading data[0] there returns a fragment
 // of the recipient's encrypted address and looks exactly like an amount.
 import { eventDefinitions, decodeEvent, feltToDecimal } from "../src/starknet-events.mjs";
+import { STRK20_POOL } from "../src/pool.mjs";
 
-const POOL = process.argv[2] ?? "0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91";
+const POOL = process.argv[2] ?? STRK20_POOL.sepolia;
 const RPC = process.argv[3] ?? "https://starknet-sepolia-rpc.publicnode.com";
 
 async function call(m, p) {

@@ -32,6 +32,9 @@ export const DOMAIN = {
   denomination: "ruido.denom.v1",
   order: "ruido.order.v1",
   invoice: "ruido.invoice.v1",
+  // The payment tag is derived in the same scheme as everything it is derived
+  // from, so "the tag is a hash of the order" is one convention rather than two.
+  payment: "ruido.payment.v1",
 };
 
 /** Only the two networks the STRK20 pool is deployed on carry orders. */

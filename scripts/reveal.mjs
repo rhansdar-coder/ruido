@@ -44,6 +44,21 @@ const arg = (name, fallback) => {
 };
 const flag = (name) => argv.includes(`--${name}`);
 
+/**
+ * The provider's bearer token, if it has one. Read from the flag or the
+ * environment, never from the order file — the order file is written by `buy`
+ * and deliberately does not carry it.
+ */
+const TOKEN = arg("token", process.env.RUIDO_PROVIDER_TOKEN ?? null);
+const call = (url, options = {}) =>
+  fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers ?? {}),
+      ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
+    },
+  });
+
 const ORDER_FILE = arg("order", null);
 const PROVIDER = arg("provider", null)?.replace(/\/+$/, "") ?? null;
 const AT = arg("at", null);
@@ -203,7 +218,7 @@ if (!PROVIDER) {
 
 let settlement;
 try {
-  const response = await fetch(`${PROVIDER}/orders/${order.id}/reveal`, {
+  const response = await call(`${PROVIDER}/orders/${order.id}/reveal`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     // The height goes with the reveal rather than being left to the provider to

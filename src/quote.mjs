@@ -81,9 +81,13 @@ export function decoyCountFor({ targetCell, bits, ...rest }) {
  * decoys batched into one call share an origin and the measurement counts
  * origins, not notes. There is no provider margin in this number; see TOKEN.md.
  */
-export function quote({ targetCell, bits, mode, network = "sepolia", ...rest }) {
+export function quote({ targetCell, bits, mode, network = "sepolia", feePerCall = null, ...rest }) {
   const decoys = decoyCountFor({ targetCell, bits, mode, ...rest });
-  const fee = FEE_PER_CALL[network] ?? FEE_PER_CALL.sepolia;
+  // A provider may charge a different fee from the network default — the fee is
+  // per `apply_actions` call and a provider that batches differently pays
+  // differently. `feePerCall` is an override for pricing somebody else's terms;
+  // it is NOT passed on to `landingRate`, which takes geometry and not money.
+  const fee = feePerCall ?? FEE_PER_CALL[network] ?? FEE_PER_CALL.sepolia;
   const delivered = bitsFor({ targetCell, decoys, mode, ...rest });
   return {
     mode,

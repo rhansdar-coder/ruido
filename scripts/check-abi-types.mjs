@@ -11,9 +11,10 @@
 //
 //   node scripts/check-abi-types.mjs
 import { typeRegistry } from "../src/actions.mjs";
+import { STRK20_POOL } from "../src/pool.mjs";
 
 const RPC = process.env.RUIDO_RPC ?? "https://starknet-sepolia-rpc.publicnode.com";
-const POOL = "0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91";
+const POOL = STRK20_POOL.sepolia;
 
 // Mirrors the decoder's own tables. Duplicated deliberately: if someone edits
 // the decoder's tables without teaching this script, the check fails rather

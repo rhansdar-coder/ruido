@@ -199,13 +199,16 @@ stops one batch of decoys being sold twice, is in
 | `npm run verify:journey` | **The four steps over real HTTP.** Spawns the reference provider, drives `buy` and `reveal` against it as child processes, and checks the refusals on both sides. Needs no chain. This is the seam `npm test` cannot reach: the unit tests call `admitReveal` and never open a socket |
 | `npm run measure` | M1, M3, effective set under six models, cover placement, landing rate, order size, cost per bit (synthetic, seeded) |
 | `npm run quote` | **The customer's entry point.** Turn "N bits of anonymity" into an order and a reveal, offline. `--cell` is required and points at the measured cell |
-| `npm run serve:provider` | A reference provider on loopback: `GET /terms`, `POST /orders`, `POST /orders/:id/payment`, `GET /orders/:id`, `POST /orders/:id/reveal`. Loopback only, and not a deployment. Where it gets the block height is a trust decision: `--at <block>` pins one by hand, `--verify` reads the chain on every reveal (`--rpc <url>` narrows it to one endpoint), and with neither it settles on the buyer's number and labels the settlement as unverified. `--verify` that fails **refuses** the settlement rather than falling back |
+| `npm run serve:provider` | A reference provider: `GET /terms` and `GET /health` are public, `POST /orders`, `POST /orders/:id/payment`, `GET /orders/:id` and `POST /orders/:id/reveal` need a token when one is set. Where it gets the block height is a trust decision: `--at <block>` pins one by hand, `--verify` reads the chain on every reveal (`--rpc <url>` narrows it to one endpoint), and with neither it settles on the buyer's number and labels the settlement as unverified. `--verify` that fails **refuses** the settlement rather than falling back. `--token <secret>` closes the money routes; binding to anything but loopback **without** one is refused at startup. `--payment-rpc <url>` reads receipts somewhere other than the height |
+| `npm run serve:book` | The order book: `GET /offers?network=&bits=&mode=&cell=` ranks providers for a size, `POST /offers { endpoint }` lists one. It lists **offers, not orders** — the registration is an endpoint and the book fetches the provider's own `/terms`, so it cannot advertise a price the provider would not honour, and there is no window parameter anywhere for a buyer's cell to arrive in |
+| `npm run verify:book` | **The book over real HTTP**, with a real provider in it. Checks that a row matches the provider's own terms, that a provider publishing a secret loses its listing, and that a buyer can find a provider without publishing a cell. Needs no chain |
+| `npm run verify:trust` | **The provider's door.** That an exposed provider with no token refuses to *start*, that `/terms` and `/health` stay open while everything else answers 401, that the limiter runs before the token check, and that `X-Forwarded-For` cannot buy a fresh bucket |
 | `npm run buy` | **Connect and acquire.** Ask a provider for its terms, price the order against its ladder, send the order and the window half, and keep the reveal. `--provider <url> --cell <n> --bits <n> --from <block> --denomination <rung> --out <file>` writes the order and the reveal to a file, which is what step four reads |
 | `npm run reveal` | **Step four: publish the reveal.** Refuses while the window is still open, fails closed if the block height cannot be established, and settles against the provider once it can. `--order <file> [--provider <url>] [--at <block>]` |
 | `npm run site` | Assemble `_site/` — the exact artifact Pages publishes — and verify nothing is missing |
 | `npm run site:check` | Verify the artifact manifest without writing anything |
 | `npm run web` | Dashboard at http://127.0.0.1:8080 |
-| `npm test` | 243 tests: adversary classifier, keccak vectors, large-input regressions, event decoding, denomination join, calldata decoding (Span, Option, tuples, u256, exact consumption), calldata encoding (round-trip, the ambiguous `Option<Option<T>>`, short-form refusals), cover placement ordering and price curve, the split commitment, quoting, settlement and the double-sell guard, the provider's accept/refuse rules and decoy plan, the whole trade end to end with no chain, the reveal gate (early / wrong / unanswerable heights, where the height came from, and the four-step journey), the chain-height reader (rotation, the three ways a public endpoint lies, and never defaulting to zero), artifact manifest, DOM contract, EVM measurement |
+| `npm test` | 360 tests: adversary classifier, keccak vectors, large-input regressions, event decoding, denomination join, calldata decoding (Span, Option, tuples, u256, exact consumption), calldata encoding (round-trip, the ambiguous `Option<Option<T>>`, short-form refusals), cover placement ordering and price curve, the split commitment, quoting, settlement and the double-sell guard, the provider's accept/refuse rules and decoy plan, the whole trade end to end with no chain, the reveal gate (early / wrong / unanswerable heights, where the height came from, and the four-step journey), the chain-height reader (rotation, the three ways a public endpoint lies, and never defaulting to zero), the payment rail (the per-order tag and its collision bound, `u256` transfer decoding at both widths, the four verdicts, and the first-claim registry), the order book (the projection that keeps a buyer's cell out, every forbidden field refused by name and at any depth, and ranking by size *and* mode), provider trust (every loopback spelling, the bind guard that refuses an exposed provider with no token, a constant-time token compare, and a bounded limiter that grants nothing on a backwards clock), artifact manifest, DOM contract, EVM measurement |
 | `npm run shots` | Render the platform to `shots/` using the installed Chrome. `--only <name>` re-shoots one section |
 | `src/chains.mjs` | The chain registry. Adding a chain is a data change, not a code change |
 | `src/keccak.mjs` | starknet_keccak, hand-rolled and tested, because Node has no keccak256 |
@@ -522,12 +525,26 @@ mistake. Both tables come out of `npm run measure`, and both are re-runnable.
    spend, and the denomination is the only axis a buyer can withhold — at exactly
    the ladder width for the same anonymity. The whole trade closes offline:
    `tests/provider.test.mjs` commits, accepts, invoices, pays, plans, settles and
-   claims without touching a chain. What is still missing is not protocol but
-   plumbing: **broadcasting the plan** (that is the emitter, and it needs the
-   local node), a **payment rail** worth the name, and a **book that lists orders**.
-   The reference provider is loopback-only, with no TLS, no auth and no durable
-   order book — and it learns when its buyer transacts, which is the position
-   being sold and belongs in any provider's written policy.
+   claims without touching a chain.
+
+   What used to be missing here was plumbing, and three of the four pieces now
+   exist. **Paying** is real: `src/payment.mjs` binds a bare STRK transfer to one
+   order with a per-order tag, reads the receipt, and answers in four verdicts
+   instead of two — with `unreadable` a refusal rather than a hopeful credit.
+   **Listing** is real: `src/orderbook.mjs` publishes standing *offers* and has no
+   window parameter anywhere, so a buyer's cell cannot reach it; it reads each
+   provider's own terms rather than accepting a composed row, and refuses by name
+   any offer carrying a field that describes one buyer. **Being safe to expose** is
+   real: `src/trust.mjs` closes every route that costs money behind a bearer token,
+   limits requests *before* it checks the token, and refuses at startup to listen
+   on a public interface without one. What is still missing is the emitter — and
+   that is the one piece that genuinely needs the local node.
+
+   Two limits are worth stating rather than discovering. The reference provider
+   still has no TLS and no durable order book, so the token travels in clear unless
+   something terminates TLS in front of it. And it learns **when** its buyer
+   transacts, which is the position being sold and belongs in any provider's
+   written policy.
 
 ## Related findings
 

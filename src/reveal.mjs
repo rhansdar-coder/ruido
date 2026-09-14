@@ -138,6 +138,20 @@ export function checkReveal(order, reveal, { network, atBlock }) {
  */
 export const HEIGHT_SOURCE = { PINNED: "pinned", PROVIDER: "provider", BUYER: "buyer" };
 
+/**
+ * The states in which an order's invoice is PAID, so a settlement may run.
+ *
+ * `emitted` is here because it is the name the provider used to move to at
+ * PAYMENT, before anything had been emitted — the same response that said
+ * `planned, NOT broadcast` also said `emitted`. That was the state machine
+ * claiming work it had not done, which is the one thing this project does not do
+ * in prose either. The provider now moves to `paid`, which is true, and
+ * `emitted` stays admissible so that an order created before the fix does not
+ * become unsettleable. When the emitter exists it will be the state that means
+ * what it says.
+ */
+export const SETTLEABLE_STATES = new Set(["paid", "planned", "emitted"]);
+
 /** The sentence that goes in the settlement for each source. */
 export function heightNoteFor(source) {
   if (source === HEIGHT_SOURCE.PINNED) {
@@ -239,7 +253,7 @@ export function admitReveal({
     return { ok: true, status: 200, body: { ...settled, duplicate: true }, claimed };
   }
 
-  if (state !== "emitted") {
+  if (!SETTLEABLE_STATES.has(state)) {
     return {
       ok: false,
       status: 409,

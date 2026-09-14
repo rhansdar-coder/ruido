@@ -18,11 +18,12 @@
 //   node scripts/verify-compile.mjs
 import { decodeValue, typeRegistry } from "../src/actions.mjs";
 import { selectorHex } from "../src/keccak.mjs";
+import { STRK20_POOL, STRK_TOKEN } from "../src/pool.mjs";
 
 const RPC = process.env.RUIDO_RPC ?? "https://starknet-sepolia-rpc.publicnode.com";
-const POOL = "0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91";
+const POOL = STRK20_POOL.sepolia;
 const COMPILE = selectorHex("compile_actions");
-const STRK = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";
+const STRK = STRK_TOKEN;
 
 // A throwaway identity. Not a secret: it is printed in this file.
 const KEY = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcde";

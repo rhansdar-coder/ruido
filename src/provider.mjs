@@ -153,18 +153,29 @@ export function invoiceFor(order, terms) {
 }
 
 /**
- * Records a payment against an invoice.
+ * Records a payment against an invoice — and only a VERIFIED one.
  *
- * This is the whole payment rail, and it is deliberately this thin: a provider
- * checks a transfer it can see on chain and writes down the reference. There is
- * no escrow, no custody and no refund path in this repository — TOKEN.md §5 says
- * to run it invoiced or prepaid before any of that is designed, and a rail
- * nobody has used is a rail nobody can size.
+ * This used to take `{ txHash, block }` and write it down, which made it a form
+ * rather than a rail: nothing checked that the transfer existed, that it came to
+ * this provider, or that it was for the amount quoted. The old call shape now
+ * throws instead of succeeding, and that is the point — "record a hash someone
+ * looked at" is no longer expressible in this repository.
+ *
+ * The argument is the verdict from `verifyPayment` (src/payment.mjs), and the
+ * only thing that produces one is that verifier, which needs a receipt naming
+ * this provider and this exact amount. There is still no escrow, no custody and
+ * no refund path: TOKEN.md §5 says to run it invoiced or prepaid before any of
+ * that is designed, and a rail nobody has used is a rail nobody can size.
  */
-export function markPaid(invoice, { txHash, block }) {
+export function markPaid(invoice, verification) {
   if (invoice.paid) throw new Error(`invoice ${invoice.id} is already paid`);
-  if (!txHash) throw new Error("a payment needs a transaction hash to be checkable");
-  return { ...invoice, paid: { txHash, block: block ?? null } };
+  if (!verification || verification.ok !== true || !verification.payment) {
+    throw new Error(
+      "an invoice can only be marked paid from the output of verifyPayment — " +
+        "a bare transaction hash is not evidence that anything was transferred",
+    );
+  }
+  return { ...invoice, paid: { ...verification.payment } };
 }
 
 /**
