@@ -42,6 +42,10 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+// `isLoopback` is the project's one answer to "is this host the local machine",
+// and the crop guard below is a second caller of it rather than a second copy.
+import { isLoopback } from "../src/trust.mjs";
+
 const run = promisify(execFile);
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -294,6 +298,39 @@ const MOBILE_SECTIONS = [
 // chosen by the page's own JavaScript and the meter is what has to be seen.
 const METERS = ["robinhood", "base", "ethereum"];
 
+// May this run crop the site it was pointed at?
+//
+// Returns null when it may, or the reason it may not. Exported and pure so the
+// answer can be tested without launching a browser — the guard below is only
+// worth having if something checks it still refuses.
+//
+// The crop helper is same-origin BY CONSTRUCTION: it loads the site into an
+// iframe with `src = "../" + page`, so it only resolves when it is served from a
+// directory sitting next to the site. That is true of the local server and never
+// true of a published origin, because `shots/` is gitignored and excluded from
+// the Pages artifact.
+//
+// What makes this worth a hard refusal rather than a warning is that it fails
+// LOOKING SUCCESSFUL. A host's 404 page is a real, correctly-coloured, comfortably
+// non-blank page: it sails through the size guard and eighteen bands come back as
+// eighteen captures of "File not found", signed off with "All shots non-blank".
+// A pipeline that reports success while photographing an error page is worse than
+// one that produces nothing at all.
+//
+// An unparseable base is refused rather than allowed: it cannot be shown to be
+// ours, and the project's rule is to fail closed on a reading we could not take.
+export function cropRefusal(urlBase, names) {
+  if (!names.length) return null;
+  let host = null;
+  try {
+    host = new URL(urlBase).hostname;
+  } catch {
+    host = null;
+  }
+  if (isLoopback(host)) return null;
+  return { host, names };
+}
+
 async function main() {
   const browser = arg("browser", await findBrowser());
   await mkdir(OUT, { recursive: true });
@@ -301,6 +338,30 @@ async function main() {
   console.log(`url     ${URL_BASE}`);
   console.log(`out     ${OUT}`);
   console.log(`only    ${ONLY.length ? ONLY.join(", ") : "(everything)"}\n`);
+
+  // Refuse to crop a site we are not serving ourselves. The reasoning lives on
+  // `cropRefusal`; the shots that never touch the crop helper — the full page,
+  // the meters, method.html — are plain renders of a URL, work against any
+  // origin, and are still allowed.
+  const cropShots = [...SECTIONS, ...MOBILE_SECTIONS]
+    .filter(([name]) => wants(name))
+    .map(([name]) => name);
+  const refusal = cropRefusal(URL_BASE, cropShots);
+  if (refusal) {
+    console.error(
+      `\nrefusing to crop ${URL_BASE}\n\n`
+      + `The ${refusal.names.length} section shot(s) requested — ${refusal.names.join(", ")} —\n`
+      + `go through shots/crop.html, which is same-origin by construction and is\n`
+      + `excluded from the published artifact. Against a remote origin every one of\n`
+      + `them would capture the host's 404 page and still report "All shots non-blank".\n\n`
+      + `Serve the site locally and re-run:\n`
+      + `  npm run web &\n`
+      + `  node scripts/screenshots.mjs --url http://127.0.0.1:8080\n\n`
+      + `Or restrict this run to the shots that do not need the crop helper:\n`
+      + `  node scripts/screenshots.mjs --url ${URL_BASE} --only 00-fullpage,09-meter-robinhood,09-meter-base,09-meter-ethereum,10-method\n`,
+    );
+    process.exit(1);
+  }
 
   // Everything actually written this run. The blank check reads this rather
   // than the full section tables, so `--only` does not fail on sections it was
@@ -436,7 +497,14 @@ async function main() {
   console.log("from the Pages artifact.");
 }
 
-main().catch((error) => {
-  console.error(`\nFAIL: ${error.message}`);
-  process.exit(1);
-});
+// Only run when invoked directly. `cropRefusal` is exported so the guard can be
+// tested, and importing this file must not launch twenty copies of Chrome.
+const isEntry = process.argv[1]
+  && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isEntry) {
+  main().catch((error) => {
+    console.error(`\nFAIL: ${error.message}`);
+    process.exit(1);
+  });
+}
