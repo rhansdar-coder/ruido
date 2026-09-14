@@ -53,7 +53,7 @@ import { parseWindowProof } from "../src/order.mjs";
 import { admitReveal, resolveHeight, HEIGHT_SOURCE } from "../src/reveal.mjs";
 import { endpointsFor } from "../src/blockheight.mjs";
 import { paymentRequest, readReceipt, verifyPayment, consume } from "../src/payment.mjs";
-import { commissionOwed } from "../src/commission.mjs";
+import { commissionOwed, coordinationTerms } from "../src/commission.mjs";
 import { strkToBase, baseToStrk } from "../src/pool.mjs";
 import {
   assertBindable,
@@ -113,6 +113,30 @@ const WRITE_RATE = Number(arg("write-rate", process.env.RUIDO_WRITE_RATE ?? 20))
 const LIMIT_READ = makeLimiter({ perWindow: READ_RATE, windowMs: RATE_WINDOW_SECONDS * 1000 });
 const LIMIT_WRITE = makeLimiter({ perWindow: WRITE_RATE, windowMs: RATE_WINDOW_SECONDS * 1000 });
 
+/**
+ * The coordination fee this provider declares, if any.
+ *
+ * Zero by default, and that is the truth rather than a placeholder: a provider
+ * that forwards nothing publishes no fee, and `readCoordination` reads an absent
+ * field as "no cut inside this price". A rate is a business decision, so it is
+ * configuration rather than a constant baked into the source.
+ */
+const COORDINATION_BPS = Number(arg("coordination-bps", process.env.RUIDO_COORDINATION_BPS ?? 0));
+const COORDINATION_ADDRESS = arg("coordination-address", process.env.RUIDO_COORDINATION_ADDRESS ?? null);
+
+// Refused HERE, before the port opens, because the failure it prevents is silent
+// and late: the row would disclose a rate, and `commissionOwed` would only throw
+// at payment time — after a buyer had already been quoted a price with a fee
+// inside it that nobody could be sent. The rule itself is `coordinationTerms` in
+// `src/commission.mjs`, so a test reaches it without starting a process.
+let COORDINATION;
+try {
+  COORDINATION = coordinationTerms({ bps: COORDINATION_BPS, address: COORDINATION_ADDRESS });
+} catch (error) {
+  console.error(`\n  ${error.message}\n`);
+  process.exit(1);
+}
+
 const TERMS = providerTerms({
   network: arg("network", "sepolia"),
   // In STRK, parsed as digits rather than as a float, and stored as base units.
@@ -121,6 +145,8 @@ const TERMS = providerTerms({
   // express below that.
   margin: strkToBase(arg("margin", "0")),
   address: arg("address", null),
+  // `null` when nothing is charged, which is a statement rather than an omission.
+  coordination: COORDINATION,
 });
 
 /**

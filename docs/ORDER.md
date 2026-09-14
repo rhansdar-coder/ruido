@@ -271,7 +271,7 @@ A failed settlement keeps its reason apart — `window-mismatch` versus
 | a provider that reads, prices and plans an order | **built** — `src/provider.mjs`, tested end to end |
 | a provider that **broadcasts** the plan | **not built.** This is the emitter, and it needs the local node. The plan is real; the emission is a stand-in |
 | a payment rail | **built and tested** — `src/payment.mjs`. Prepaid in STRK, with an amount **unique to the order** so a bare transfer binds to one, four verdicts instead of two, and a first-claim registry so one transfer cannot pay twice. No escrow, no custody, no refund path — `TOKEN.md` §5 says run it invoiced or prepaid first. See below |
-| a coordination fee for Ruido | **not built, and designed below.** No rate is set, no address is published, and nothing in this repository charges or receives anything |
+| a coordination fee for Ruido | **built; no rate is set.** `src/commission.mjs` computes the second leg, every offer row discloses the fee and checks its rate against the protocol's own, and `reconcile()` keeps four answers apart. What is missing is a rate, an address and a signer — three faces of one gap. See below |
 | an order book | **built and tested** — `src/orderbook.mjs`, `npm run serve:book`. It lists **offers, not orders**, and has no window parameter anywhere, so a buyer's cell cannot reach it. **Listing needs a token while browsing stays public**, because a registration is a URL the book will fetch and the row it produces is what a buyer talks to — and it refuses to fetch a loopback, private or link-local address, the cloud metadata service included, even when private addresses are allowed. `npm run verify:book` drives it over HTTP |
 | a provider worth trusting | **built and tested** — `src/trust.mjs`. A bearer token on every route that costs money, `/terms` public so a book can list it, a limiter that runs *before* the token check, and a startup refusal to bind a public interface with no token. **The same module closes the book's listing route** and holds the fetch guard above, so the two processes take one set of answers rather than two. `npm run verify:trust` drives it over HTTP. Still no TLS, and it still learns **when** each buyer transacts. The fetch guard reads the URL's own host, so a **name** that resolves to a private address is not caught — `src/trust.mjs` says so where the check lives |
 | on-chain verification | **not built.** Settlement here runs on a JSON file, not on Starknet. The *payment* is verified on-chain; the decoys are not |
@@ -444,7 +444,7 @@ invoice is not a whole number of STRK, so a commission was **not expressible at
 all** while every amount was whole — the same constraint that left a provider's
 own margin expressible only as 0%, 50% or 100%.
 
-### What is built, and what is not
+### The fee: what is built, and what is not
 
 | | |
 |---|---|
@@ -452,7 +452,8 @@ own margin expressible only as 0%, 50% or 100%.
 | the second leg | **built.** `commissionRequest` returns it, `commissionOwed` reads it off a provider's own terms, and `serve-provider` reports it as **owed** at payment — computed, not sent |
 | the reconciliation | **built as a function.** `reconcile()` keeps `forwarded`, `short`, `missing` and `unmatched` apart. Nothing yet feeds it a chain read, so no order has been reconciled |
 | the disclosure in the offer row | **built.** Every row carries `coordination`, and the RATE is checked against the protocol's own — a provider cannot declare its own |
-| `coordinationFeeBps` | **not set.** `COORDINATION_FEE_BPS` is zero, so every row currently discloses "no fee" |
+| the configuration | **built.** Both processes take the rate from their own flags (`--coordination-bps`, or `RUIDO_COORDINATION_BPS`), and neither reads the other's. A rate with no address is refused before the port opens. `npm run verify:book` drives the real provider with the flag to prove it reaches `/terms` |
+| `coordinationFeeBps` | **not set.** The default is zero and nothing sets it, so every row currently discloses "no fee" |
 | a receiving address | **not published.** Ruido has no address anywhere in this repository |
 | the sending | **not built.** Moving the second leg needs a signed transaction and a key — the same deferral as the emitter |
 

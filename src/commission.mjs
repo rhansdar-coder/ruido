@@ -79,14 +79,19 @@ export function commissionInvoiceId(invoiceId) {
 }
 
 /**
- * The fee on an amount, in base units.
+ * The rate itself, validated — and the only place that decides what a rate may
+ * be.
  *
- * Returns zero when the rate rounds the fee away — which is not an error here and
- * is one for `commissionRequest`, because the two questions are different: "what
- * is the fee" has the answer "nothing", while "what do I ask for" has no answer
- * at all when the amount is nothing.
+ * Separate from the arithmetic because three callers need the rule and only one
+ * of them needs the arithmetic: `commissionFor` prices a fee, the offer row
+ * checks a declared rate against the deployment's, and the book validates its
+ * own configuration at startup. Written three times, the three copies would
+ * disagree about the ceiling eventually, and the one that disagreed would be the
+ * one nobody looked at.
+ *
+ * `BPS_SCALE` is the ceiling because a fee above the whole payment is not a fee.
  */
-export function commissionFor(amount, { bps = COORDINATION_FEE_BPS } = {}) {
+export function assertRate(bps) {
   if (!Number.isInteger(bps) || bps < 0) {
     throw new Error(`a coordination fee is a non-negative whole number of basis points, got ${bps}`);
   }
@@ -96,11 +101,50 @@ export function commissionFor(amount, { bps = COORDINATION_FEE_BPS } = {}) {
         `which is not a fee. The ceiling is ${BPS_SCALE}`,
     );
   }
+  return bps;
+}
+
+/**
+ * The fee on an amount, in base units.
+ *
+ * Returns zero when the rate rounds the fee away — which is not an error here and
+ * is one for `commissionRequest`, because the two questions are different: "what
+ * is the fee" has the answer "nothing", while "what do I ask for" has no answer
+ * at all when the amount is nothing.
+ */
+export function commissionFor(amount, { bps = COORDINATION_FEE_BPS } = {}) {
+  assertRate(bps);
   const base = BigInt(amount);
   if (base < 0n) throw new Error(`a commission on a negative amount is not a commission, got ${base}`);
 
   const raw = (base * BigInt(bps)) / BPS_SCALE;
   return (raw / TAG_MOD) * TAG_MOD;
+}
+
+/**
+ * The `coordination` field a provider publishes, from its own configuration.
+ *
+ * `null` when nothing is charged, which is a statement rather than an omission:
+ * a fee of zero and no fee are the same fact, and publishing `{ bps: 0 }` would
+ * say it twice.
+ *
+ * The validation lives here rather than in the server script because it is a
+ * rule, not a detail of argument parsing — and a rule that lives in a script is
+ * a rule no test can reach without starting a process. The failure it prevents
+ * is silent and late: a row would disclose a rate, `commissionOwed` would only
+ * throw at payment time, and by then a buyer has been quoted a price with a fee
+ * inside it that nobody can be sent.
+ */
+export function coordinationTerms({ bps = COORDINATION_FEE_BPS, address = null } = {}) {
+  assertRate(bps);
+  if (bps === 0) return null;
+  if (!address) {
+    throw new Error(
+      `a ${bps} basis point coordination fee needs the address it is forwarded to: a fee with ` +
+        "nowhere to go is one the provider would owe and could not forward",
+    );
+  }
+  return { bps, address };
 }
 
 /**
@@ -175,9 +219,7 @@ export function commissionOwed(invoice, order, terms) {
  * destination, which is a disclosure that says nothing.
  */
 export function commissionDisclosure({ bps = COORDINATION_FEE_BPS, address = null } = {}) {
-  if (!Number.isInteger(bps) || bps < 0) {
-    throw new Error(`a coordination fee is a non-negative whole number of basis points, got ${bps}`);
-  }
+  assertRate(bps);
   const charged = bps > 0;
   if (charged && !address) {
     throw new Error(

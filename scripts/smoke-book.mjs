@@ -407,6 +407,60 @@ try {
     const again = await (await fetch(`${best.endpoint}/terms`)).json();
     check((again.terms ?? again).network === "sepolia", "the endpoint the book handed over is a provider that answers");
   }
+
+  // --- the coordination fee, reachable from the processes ---------------------
+
+  rule("A provider can declare a fee, and the book checks it against its own rate");
+
+  {
+    // The REAL provider, started the way an operator would start it. A fixture
+    // would agree with the book by construction; what is checked here is that
+    // the flag reaches the published terms at all — which is the gap this closes,
+    // because before it `providerTerms` could not carry a fee and the whole
+    // mechanism was unreachable from a running process.
+    const fee = await start(
+      "scripts/serve-provider.mjs",
+      await freePort(),
+      ["--coordination-bps", "500", "--coordination-address", ADDRESS],
+      "/terms",
+    );
+    children.push(fee.child);
+
+    const published = await (await fetch(`${fee.url}/terms`)).json();
+    const declared = (published.terms ?? published).coordination;
+    check(declared?.bps === 500, "a provider started with --coordination-bps publishes the rate", JSON.stringify(declared));
+    check(declared?.address === ADDRESS, "and the address the fee is forwarded to");
+
+    // The book takes its rate from its own configuration and checks every row
+    // against it. Same rate: listed, and the fee is disclosed on the row.
+    const agreeing = await start("scripts/serve-book.mjs", await freePort(), ["--coordination-bps", "500"], "/health");
+    children.push(agreeing.child);
+
+    const response = await post(agreeing.url, "/offers", { endpoint: fee.url });
+    const body = await response.json();
+    check(response.status === 201, "a book charging the same rate lists it", `HTTP ${response.status}`);
+    check(body.offer?.coordination?.charged === true, "and the row discloses the fee", JSON.stringify(body.offer?.coordination));
+    check(
+      body.unverified?.includes("coordination"),
+      "and labels it hearsay, because the book cannot see the forwarding",
+      body.unverified?.join(",") ?? "—",
+    );
+
+    const health = await (await fetch(`${agreeing.url}/health`)).json();
+    check(health.coordinationBps === 500, "and the book reports the rate it checks against", String(health.coordinationBps));
+
+    // A book left at zero is the misconfiguration this catches. It would refuse
+    // every honest row, and without the named refusal the operator would see an
+    // empty book and go looking in the wrong place.
+    const mismatched = await start("scripts/serve-book.mjs", await freePort(), [], "/health");
+    children.push(mismatched.child);
+
+    const refused = await post(mismatched.url, "/offers", { endpoint: fee.url });
+    const why = await refused.json();
+    check(refused.status === 400, "a book charging nothing refuses the same row", `HTTP ${refused.status}`);
+    check(/the rate is the protocol's/.test(why.reason ?? ""), "and the refusal says whose rate it is", why.reason ?? "—");
+    check(/\b500\b/.test(why.reason ?? "") && /\b0\b/.test(why.reason ?? ""), "and names both numbers, so the mismatch is visible");
+  }
 } catch (error) {
   bad("the book ran at all", error.message);
 } finally {

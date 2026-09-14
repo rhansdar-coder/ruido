@@ -21,6 +21,8 @@ import assert from "node:assert/strict";
 import {
   BPS_SCALE,
   COORDINATION_FEE_BPS,
+  assertRate,
+  coordinationTerms,
   commissionInvoiceId,
   commissionFor,
   commissionRequest,
@@ -102,6 +104,81 @@ test("a rate above the whole payment is refused, because that is not a fee", () 
 test("a commission on a negative amount is refused rather than returned as a negative fee", () => {
   assert.throws(() => commissionFor(-1n, { bps: 100 }), /negative amount is not a commission/);
 });
+
+// --- the rate rule, in one place ---------------------------------------------
+
+test("assertRate is the one place that decides what a rate may be", () => {
+  // Three callers need this rule — the arithmetic, the offer row, and the book's
+  // own startup — and written three times the copies would disagree eventually,
+  // with the disagreeing one being the one nobody looked at.
+  assert.equal(assertRate(0), 0);
+  assert.equal(assertRate(500), 500);
+  assert.equal(assertRate(10_000), 10_000);
+
+  assert.throws(() => assertRate(-1), /non-negative whole number of basis points/);
+  assert.throws(() => assertRate(1.5), /non-negative whole number of basis points/);
+  assert.throws(() => assertRate("500"), /non-negative whole number of basis points/);
+  assert.throws(() => assertRate(NaN), /non-negative whole number of basis points/);
+  assert.throws(() => assertRate(10_001), /more than the whole payment/);
+});
+
+test("the arithmetic and the disclosure refuse exactly the rates the rule refuses", () => {
+  for (const bps of [-1, 1.5, NaN, 10_001, 99_999]) {
+    assert.throws(() => commissionFor(amount, { bps }), Error, `commissionFor accepted ${bps}`);
+    assert.throws(() => commissionDisclosure({ bps }), Error, `commissionDisclosure accepted ${bps}`);
+  }
+});
+
+// --- the terms a provider publishes ------------------------------------------
+
+test("a provider charging nothing publishes no fee, rather than a fee of zero", () => {
+  // A fee of zero and no fee are the same fact, and `{ bps: 0 }` would say it
+  // twice. `readCoordination` reads an absent field as "no cut in this price".
+  assert.equal(coordinationTerms(), null);
+  assert.equal(coordinationTerms({ bps: 0 }), null);
+  assert.equal(coordinationTerms({ bps: 0, address: RUIDO }), null, "an address with no rate declares nothing");
+});
+
+test("a provider that charges publishes the rate and where it goes", () => {
+  assert.deepEqual(coordinationTerms({ bps: 500, address: RUIDO }), { bps: 500, address: RUIDO });
+});
+
+test("a rate with nowhere to go is refused before anything is published", () => {
+  // The failure this prevents is silent and late: the row would disclose a rate
+  // and `commissionOwed` would only throw at payment time — after a buyer had
+  // been quoted a price with a fee inside it that nobody could be sent.
+  assert.throws(
+    () => coordinationTerms({ bps: 500 }),
+    /needs the address it is forwarded to/,
+  );
+  assert.throws(() => coordinationTerms({ bps: 500, address: "" }), /needs the address/);
+  assert.throws(() => coordinationTerms({ bps: 500, address: null }), /needs the address/);
+});
+
+test("the terms rule and the book's rule agree, because they are one rule", () => {
+  // If these two ever disagreed, a provider could publish terms the book would
+  // refuse for a reason the provider could not reproduce.
+  for (const bps of [-1, 2.5, NaN, 10_001]) {
+    const fromTerms = (() => {
+      try {
+        coordinationTerms({ bps, address: RUIDO });
+        return null;
+      } catch (error) {
+        return error.message;
+      }
+    })();
+    const fromBook = (() => {
+      try {
+        assertRate(bps);
+        return null;
+      } catch (error) {
+        return error.message;
+      }
+    })();
+    assert.equal(fromTerms, fromBook, `the two rules disagree about ${bps}`);
+  }
+});
+
 
 // --- the second invoice, derived rather than reused ---------------------------
 

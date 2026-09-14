@@ -90,6 +90,7 @@ import {
   BOOK_PUBLIC_ROUTES,
   BOOK_NOTES,
 } from "../src/trust.mjs";
+import { assertRate } from "../src/commission.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -148,6 +149,26 @@ const ALLOW_PRIVATE = flag("no-allow-private")
  */
 const LIMIT_READ = makeLimiter({ perWindow: 240, windowMs: 60_000 });
 const LIMIT_WRITE = makeLimiter({ perWindow: 12, windowMs: 60_000 });
+
+/**
+ * The rate this deployment charges, which every row is checked against.
+ *
+ * Zero by default, and it is configuration rather than a constant because the
+ * book and the provider have to agree on it. A book left at zero while the
+ * providers charge would refuse every honest row, and the operator would see an
+ * empty book rather than the mismatch that caused it — so the refusal names both
+ * numbers, and a wrong value here is loud instead of quiet.
+ */
+const COORDINATION_BPS = Number(arg("coordination-bps", process.env.RUIDO_COORDINATION_BPS ?? 0));
+try {
+  // The rule is `assertRate` in src/commission.mjs, shared with the provider and
+  // with the fee arithmetic, so the three cannot drift apart about what a rate
+  // may be.
+  assertRate(COORDINATION_BPS);
+} catch (error) {
+  console.error(`\n  ${error.message}\n`);
+  process.exit(1);
+}
 
 /**
  * How long a row is trusted before the book re-reads the provider's terms.
@@ -222,7 +243,13 @@ async function fetchTerms(endpoint) {
 
 /** The pure half: terms in, a validated row out. Throws if the row is not publishable. */
 function buildOffer(terms, endpoint) {
-  const offer = offerFromTerms(terms, { endpoint: normalise(endpoint), registeredAt: new Date().toISOString() });
+  const offer = offerFromTerms(terms, {
+    endpoint: normalise(endpoint),
+    registeredAt: new Date().toISOString(),
+    // The book's own rate, so a row that declares a different one is refused
+    // rather than listed. See `readCoordination` in src/orderbook.mjs.
+    coordinationRate: COORDINATION_BPS,
+  });
   return { ...offer, reachable: true, lastSeenAt: new Date().toISOString() };
 }
 
@@ -270,7 +297,14 @@ async function refresh(offer) {
   }
   try {
     return buildOffer(terms, offer.endpoint);
-  } catch {
+  } catch (error) {
+    // Dropped, because a row this book cannot price is worse than no row — but
+    // NOT silently. The commonest cause is now a rate mismatch between this book
+    // and that provider, which is a deployment misconfiguration, and a provider
+    // that vanishes from the book with no explanation is the hardest kind of
+    // problem to find. Registration refuses this loudly; the refresh path can
+    // only say so here.
+    console.error(`  dropped ${offer.endpoint}: ${error.message}`);
     return null;
   }
 }
@@ -327,6 +361,10 @@ const server = createServer(async (request, response) => {
         // whether strangers are getting in.
         authRequired: Boolean(TOKEN),
         allowPrivate: ALLOW_PRIVATE,
+        // The rate every row is checked against, for the same reason as the two
+        // above: an operator should be able to see the posture rather than infer
+        // it from an empty book.
+        coordinationBps: COORDINATION_BPS,
       });
     }
 

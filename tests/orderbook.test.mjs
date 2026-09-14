@@ -546,6 +546,44 @@ test("a disclosed fee is named as unverified, because the book cannot see the fo
   assert.ok(!unverified({ ...offer, coordination: { charged: false } }).includes("coordination"));
 });
 
+test("the book checks a row against ITS OWN rate, not against the default", () => {
+  // The book and the provider each take the rate from their own configuration
+  // and neither reads the other's, so a deployment that charges and a book left
+  // at zero is a misconfiguration — and the failure mode without this is an
+  // empty book rather than a named refusal.
+  const charging = termsFor({ coordination: { bps: 500, address: ADDRESS } });
+
+  const agreeing = offerFromTerms(charging, { endpoint: "http://x", coordinationRate: 500 });
+  assert.equal(agreeing.coordination.charged, true);
+  assert.equal(agreeing.coordination.bps, 500);
+  assert.equal(agreeing.coordination.address, ADDRESS);
+
+  assert.throws(
+    () => offerFromTerms(charging, { endpoint: "http://x" }),
+    /the rate is the protocol's/,
+    "the default rate is zero, so a charging provider is refused by default",
+  );
+});
+
+test("a book that charges refuses a row that stays silent about where the fee goes", () => {
+  assert.throws(
+    () => offerFromTerms(termsFor(), { endpoint: "http://x", coordinationRate: 500 }),
+    /must say where it is forwarded/,
+  );
+});
+
+test("a row charging nothing is listed by a book charging nothing, and says so", () => {
+  const offer = offerFromTerms(termsFor(), { endpoint: "http://x", coordinationRate: 0 });
+  assert.equal(offer.coordination.charged, false);
+  assert.equal(offer.coordination.address, null);
+});
+
+test("the book's rate is validated by the same rule the provider's is", () => {
+  assert.throws(() => readCoordination(termsFor(), { rate: -1 }), /non-negative whole number/);
+  assert.throws(() => readCoordination(termsFor(), { rate: 2.5 }), /non-negative whole number/);
+  assert.throws(() => readCoordination(termsFor(), { rate: 10_001 }), /more than the whole payment/);
+});
+
 test("the `claimed` bag IS copied, so a secret in it is refused", () => {
   // This is the one place the projection does not reach: `claimed` is the
   // provider's own words, carried whole, so the refusal has to do the work.

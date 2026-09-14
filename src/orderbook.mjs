@@ -62,7 +62,7 @@
 import { quote, MODES } from "./quote.mjs";
 import { PROVIDER_VERSION } from "./provider.mjs";
 import { UNIT } from "./pool.mjs";
-import { COORDINATION_FEE_BPS, commissionDisclosure } from "./commission.mjs";
+import { COORDINATION_FEE_BPS, assertRate, commissionDisclosure } from "./commission.mjs";
 
 /**
  * Field names that must never appear in an offer, matched case-insensitively and
@@ -122,6 +122,13 @@ export const wireNumber = (value) => (typeof value === "bigint" ? value.toString
  * parameter of `amountDue`.
  */
 export function readCoordination(terms, { rate = COORDINATION_FEE_BPS } = {}) {
+  // The rate is validated HERE rather than trusted, because this function is
+  // reachable from a caller that never went through a startup check — and a
+  // negative rate used to fall straight through the `rate > 0` branch below and
+  // return a disclosure of zero. A book that silently believed it charged
+  // nothing is the failure this whole disclosure exists to prevent.
+  assertRate(rate);
+
   const declared = terms?.coordination ?? null;
 
   // Absent is honest only while nothing is charged. Once a rate is set, a row
@@ -160,8 +167,17 @@ export function readCoordination(terms, { rate = COORDINATION_FEE_BPS } = {}) {
  * accepting a row the provider composed — means a provider cannot advertise a
  * price it would not honour. The book holds the URL, the provider holds the
  * terms, and the quote the buyer sees is recomputed from the terms every time.
+ * `coordinationRate` is the deployment's own rate, and it is a parameter rather
+ * than read from the constant because the book and the provider have to agree on
+ * it: a book that assumed zero would refuse every honest row from a deployment
+ * that charges. Both processes take it from their own configuration, and a
+ * mismatch is a misconfiguration that shows up as a named refusal rather than as
+ * an empty book.
  */
-export function offerFromTerms(document, { endpoint, registeredAt = null } = {}) {
+export function offerFromTerms(
+  document,
+  { endpoint, registeredAt = null, coordinationRate = COORDINATION_FEE_BPS } = {},
+) {
   if (!endpoint) throw new Error("an offer needs the endpoint it can be reached at");
   if (!document || typeof document !== "object") throw new Error("an offer needs the provider's terms");
 
@@ -209,7 +225,7 @@ export function offerFromTerms(document, { endpoint, registeredAt = null } = {})
     // is where comparability lives. Always present, so "charges nothing" is a
     // statement the row makes rather than a field a reader has to notice is
     // missing.
-    coordination: readCoordination(terms),
+    coordination: readCoordination(terms, { rate: coordinationRate }),
     registeredAt,
     // Everything a provider asserts about itself and the book cannot check. Kept
     // in its own bag so that a reader has to reach for it deliberately.
