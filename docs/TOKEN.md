@@ -134,3 +134,90 @@ sell, not for me.
 What I'll say without qualification: the order matters. **Product, then usage,
 then token.** Every project that inverted that order is on the list of things
 you've been auditing this week.
+
+## 7. The launchpad question
+
+You asked whether to mint our own or launch on a pool like Pons. I read the
+mechanics rather than guessing, and the answer changes what is actually on the
+table — so the research is here rather than in a chat log.
+
+**First, the source.** The launchpad is `ponsfamily.com/launchpad`; the mechanics
+are in `docs.ponsfamily.com/v2`. It is the native launchpad of **Robinhood Chain**
+(chain ID `4663`, ETH for gas) — the one chain this project already measures — and
+its own description is "a memecoin launchpad for fixed-supply tokens". 919 tokens
+had graduated when I looked. Do not confuse it with `pons.finance`, which is the
+PONZ reserve protocol; I did, first, and got the economics wrong because of it.
+
+**The mechanics that matter (Pons V2):**
+
+- The **entire supply** is minted into a bonding curve at creation. No presale, no
+  team allocation, and the creator holds **no tokens**.
+- When the curve sells out it graduates — automatically, inside the purchase that
+  finishes it — into a Uniswap v4 pool whose liquidity is **locked permanently**.
+  There is no unlock function, so a liquidity rug is not possible.
+- **Everything the curve collected goes into that pool.** The creator receives
+  none of it.
+- The creator's income is **fees**. Of each trade, pons takes its share first, then
+  an optional buyback slice, and the remainder **plus the whole creator tax** is
+  the creator's — paid in the quote asset and accumulated in a fee escrow.
+  `creatorTaxBps` is capped by the protocol, set at creation, and immutable.
+- Supply is fixed. There is no mint. The creator cannot freeze, blacklist, add a
+  tax later, or reach the locked liquidity. Two controls survive: where fees go,
+  and whether buybacks are on.
+
+So the precise answer to "does it raise money" is: **it raises no capital, but it
+does pay a fee stream.** Those are different things and it matters which one you
+were asking for. A sale gives you money once, from people buying an asset. A
+launchpad launch gives you a share of trading fees, for as long as people trade.
+Neither is "profit" in the sense of a business earning on its work.
+
+**Three facts that bound the decision:**
+
+1. **Public launches are currently whitelist-only.** Check `canLaunch(address)`
+   before planning around a date.
+2. **Three audits are in progress and none has closed.** Their own docs say to
+   treat v2 as unaudited until the reports publish.
+3. It is a memecoin launchpad. That is not a criticism of it; it is the design,
+   and it tells you what kind of asset comes out.
+
+**The problem, which is not technical.** A token launched there has **no mechanism
+connecting it to this project**. The curve does not know about the measurement,
+the pool does not know about the market, and nothing in the emitter would read it.
+The only thing the two would share is the name.
+
+And the name is the asset. The whole value of this project is that it measures and
+does not sell. A memecoin carrying RUIDO does not give the platform backing — it
+spends the backing the platform already has. §1 says the fastest way to be
+classified as a *cascarón* is to sell a token before the thing works. This is that
+trade with a launchpad's interface on top.
+
+There is also an arithmetic problem. The fee stream pays on **trading volume**, and
+the volume of a memecoin is a function of attention rather than of whether the
+market works. It decouples our income from our work, which is the opposite of
+"generate revenue to keep improving the project".
+
+**The options, side by side:**
+
+| | Income for development | Connected to the platform | Risk |
+|---|---|---|---|
+| **1 · No token** — sell cover at a margin | Yes, recurring, tied to the work | It *is* the business | None from issuance |
+| **2 · Non-transferable points** | No | Yes | Low — nothing is sold |
+| **3 · Reward token** (§4) | No | Yes, consumptive use | Medium, with precedent |
+| **4 · Fee claim** | Yes, if there is a sale | Yes | **High** — security profile |
+| **5 · Pons launch** | Yes, but on someone else's volume | **No** | High, plus whitelist and unaudited code |
+
+**What I'd do.** Option 1 is already built: the payment rail — prepaid in STRK, an
+invoice, a per-order tag — earns **against our own work**, which is the only income
+that does not collapse when attention moves elsewhere. It needs demand, not a
+token. Option 2 is the honest interim, incentives without a sale. Option 3 is what
+§4 already designs, and it comes after the market works. §5 is unchanged by any of
+this: if step 3 shows no demand, the honest move is to stop.
+
+Option 5 is your call, not mine. If you take it, three things follow and all three
+should be decided deliberately rather than discovered: it does not give the
+platform backing, the copy that currently says RDO is *not issued, not minted and
+not for sale* has to be rewritten, and §6 stops being hypothetical and becomes a
+live question — which means a securities lawyer in the jurisdiction of sale.
+
+**Nothing on the site has been changed for any of this.** The instrument still
+says what it says, and it will keep saying it until there is a decision.
