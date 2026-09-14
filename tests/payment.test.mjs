@@ -25,6 +25,7 @@ import {
   paymentRequest,
   decodeTransfer,
   transfersIn,
+  transfersTo,
   normaliseReceipt,
   readReceipt,
   verifyPayment,
@@ -37,6 +38,9 @@ const hex = (value) => `0x${BigInt(value).toString(16)}`;
 const PROVIDER = "0x0119f9a1e4e3f0f0c2a1b8d7e6f5a4b3c2d1e0f1a2b3c4d5e6f708192a3b4c5d";
 const BUYER = "0x0277aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff0011";
 const ORDER_ID = `0x${"ab".repeat(32)}`;
+// The address a commission would be forwarded to. This repository publishes
+// none, so it is a fixture like the others — see docs/ORDER.md §"The commission".
+const RUIDO = `0x${"c0".repeat(32)}`;
 const OTHER_ORDER = `0x${"cd".repeat(32)}`;
 
 const TERMS = providerTerms({ network: "sepolia", margin: 0n });
@@ -434,4 +438,253 @@ test("a verified payment marks the invoice paid, and it cannot be paid twice", (
   assert.equal(paid.paid.txHash, String(request.txHash).toLowerCase());
   assert.equal(paid.paid.block, 4_200_000);
   assert.throws(() => markPaid(paid, verdict), /already paid/);
+});
+
+// --- what arrived, which is the reconciliation's other half -----------------
+//
+// `transfersTo` reads the chain for arrivals at one address. The tests below are
+// about its FAILURE DIRECTIONS rather than its happy path, because every way it
+// can go wrong points the same way: an empty or truncated answer reads as "no
+// provider ever forwarded", which is an accusation against every honest provider
+// in the book. So the interesting cases are the ones where it must refuse to
+// answer rather than answer wrongly.
+
+/** A fake endpoint that answers `starknet_getEvents` from a list of pages. */
+function eventsEndpoint(pages) {
+  const calls = [];
+  const fetch = async (_endpoint, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(body);
+    const page = pages[calls.length - 1] ?? { events: [] };
+    return { text: async () => JSON.stringify({ jsonrpc: "2.0", id: body.id, result: page }) };
+  };
+  return { fetch, calls };
+}
+
+const withHash = (event, txHash, block = 100) => ({ ...event, transaction_hash: txHash, block_number: block });
+
+const readFor = (pages, extra = {}) =>
+  transfersTo(RUIDO, {
+    network: "sepolia",
+    fromBlock: 1,
+    toBlock: 2,
+    endpoints: ["http://127.0.0.1:1/rpc"],
+    fetch: eventsEndpoint(pages).fetch,
+    ...extra,
+  });
+
+test("it returns the transfers TO the address, and counts what it scanned", () => {
+  const endpoint = eventsEndpoint([
+    { events: [withHash(transferEvent({ to: RUIDO, value: 7n }), "0xa1")], continuation_token: null },
+  ]);
+  return transfersTo(RUIDO, {
+    network: "sepolia",
+    fromBlock: 1,
+    toBlock: 2,
+    endpoints: ["http://x"],
+    fetch: endpoint.fetch,
+  }).then((read) => {
+    assert.equal(read.transfers.length, 1);
+    assert.equal(read.transfers[0].value, 7n);
+    assert.equal(read.transfers[0].txHash, "0xa1");
+    assert.equal(read.scanned, 1, "it says how many events it looked at");
+    assert.equal(read.pages, 1);
+  });
+});
+
+test("a transfer to somebody else is SCANNED and not returned, and the difference is visible", () => {
+  // This is the local filter. The point of counting `scanned` separately is that
+  // "nothing arrived" and "nothing was examined" are the same empty list and
+  // completely different findings.
+  const endpoint = eventsEndpoint([
+    {
+      events: [
+        withHash(transferEvent({ to: PROVIDER, value: 7n }), "0xb1"),
+        withHash(transferEvent({ to: RUIDO, value: 9n }), "0xb2"),
+      ],
+      continuation_token: null,
+    },
+  ]);
+  return transfersTo(RUIDO, {
+    network: "sepolia",
+    fromBlock: 1,
+    toBlock: 2,
+    endpoints: ["http://x"],
+    fetch: endpoint.fetch,
+  }).then((read) => {
+    assert.equal(read.transfers.length, 1, "only the one addressed to Ruido");
+    assert.equal(read.transfers[0].txHash, "0xb2");
+    assert.equal(read.scanned, 2, "but both were looked at");
+  });
+});
+
+test("a page that is empty is distinguishable from a range that held nothing", () => {
+  return readFor([{ events: [], continuation_token: null }]).then((read) => {
+    assert.deepEqual(read.transfers, []);
+    assert.equal(read.scanned, 0, "zero examined is the signal the caller needs");
+  });
+});
+
+test("pagination follows the continuation token and collects every page", () => {
+  const endpoint = eventsEndpoint([
+    { events: [withHash(transferEvent({ to: RUIDO, value: 1n }), "0xc1")], continuation_token: "next" },
+    { events: [withHash(transferEvent({ to: RUIDO, value: 2n }), "0xc2")], continuation_token: null },
+  ]);
+  return transfersTo(RUIDO, {
+    network: "sepolia",
+    fromBlock: 1,
+    toBlock: 2,
+    endpoints: ["http://x"],
+    fetch: endpoint.fetch,
+  }).then((read) => {
+    assert.equal(read.transfers.length, 2);
+    assert.equal(read.pages, 2);
+    assert.equal(endpoint.calls[1].params[0].continuation_token, "next");
+  });
+});
+
+test("an event from a contract that is not the token is scanned but not counted as a transfer", () => {
+  const impostor = { ...transferEvent({ to: RUIDO, value: 5n }), from_address: "0x0999" };
+  return readFor([{ events: [withHash(impostor, "0xd1")], continuation_token: null }]).then((read) => {
+    assert.equal(read.scanned, 1);
+    assert.equal(read.transfers.length, 0, "the shape is right and the contract is not");
+  });
+});
+
+test("an HTML answer is refused rather than read as an empty page", () => {
+  // The trap `readReceipt` already guards. Here it is worse: a proxy that answers
+  // `{}` would yield an empty page, and an empty page is a false accusation.
+  const fetch = async () => ({ text: async () => "<html>captive portal</html>" });
+  return readFor([], { fetch }).then((read) => {
+    assert.equal(read, undefined, "nobody could say");
+  });
+});
+
+test("a page the reader does not understand is refused, not treated as empty", () => {
+  const fetch = async (_endpoint, init) => {
+    const body = JSON.parse(init.body);
+    return { text: async () => JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { unexpected: true } }) };
+  };
+  return readFor([], { fetch }).then((read) => assert.equal(read, undefined));
+});
+
+test("when no endpoint can be read it returns undefined, NOT an empty list", () => {
+  // The single most important direction in this file. `[]` would mean "nobody
+  // forwarded"; `undefined` means "nobody could say", and only one of those is
+  // true when the RPC is down.
+  const failing = async () => {
+    throw new Error("connect ECONNREFUSED");
+  };
+  return readFor([], { fetch: failing }).then((read) => {
+    assert.equal(read, undefined);
+    assert.notDeepEqual(read, { transfers: [], scanned: 0 });
+  });
+});
+
+test("a walk that fails part way restarts on the next endpoint, never resuming", () => {
+  // A set assembled from two endpoints' pages is a set nobody has verified, and
+  // a truncated set is a list of missing forwards that are not missing.
+  const seen = [];
+  const fetch = async (endpoint, init) => {
+    const body = JSON.parse(init.body);
+    seen.push(endpoint);
+    if (endpoint === "http://first/rpc") {
+      if (body.params[0].continuation_token === "page2") throw new Error("died mid-walk");
+      return {
+        text: async () =>
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: { events: [withHash(transferEvent({ to: RUIDO, value: 1n }), "0xe1")], continuation_token: "page2" },
+          }),
+      };
+    }
+    return {
+      text: async () =>
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: { events: [withHash(transferEvent({ to: RUIDO, value: 2n }), "0xe2")], continuation_token: null },
+        }),
+    };
+  };
+
+  return transfersTo(RUIDO, {
+    network: "sepolia",
+    fromBlock: 1,
+    toBlock: 2,
+    endpoints: ["http://first/rpc", "http://second/rpc"],
+    fetch,
+  }).then((read) => {
+    assert.equal(read.transfers.length, 1, "only the second endpoint's set, complete");
+    assert.equal(read.transfers[0].txHash, "0xe2");
+    assert.ok(seen.includes("http://first/rpc") && seen.includes("http://second/rpc"));
+  });
+});
+
+test("more pages than the ceiling is refused rather than truncated", async () => {
+  // The endpoint keeps offering another page forever, which is what a range
+  // somebody got wrong looks like from here.
+  const fetch = async (_endpoint, init) => {
+    const body = JSON.parse(init.body);
+    return {
+      text: async () =>
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: { events: [], continuation_token: "always-more" },
+        }),
+    };
+  };
+  const read = await transfersTo(RUIDO, {
+    network: "sepolia",
+    fromBlock: 1,
+    toBlock: 2,
+    endpoints: ["http://x"],
+    fetch,
+    maxPages: 3,
+  });
+  assert.equal(read, undefined, "a truncated list must not be returned");
+});
+
+test("a range that is empty or backwards is refused before any request", async () => {
+  const fetch = async () => {
+    throw new Error("should never be called");
+  };
+  // `assert.rejects`, not `assert.throws`: the function is async, so its
+  // refusals are rejections and a synchronous check would pass vacuously.
+  await assert.rejects(
+    transfersTo(RUIDO, { network: "sepolia", fromBlock: 9, toBlock: 1, endpoints: ["http://x"], fetch }),
+    /empty range/,
+  );
+  await assert.rejects(
+    transfersTo(RUIDO, { network: "sepolia", fromBlock: 1, toBlock: 2.5, endpoints: ["http://x"], fetch }),
+    /needs a block range/,
+  );
+  await assert.rejects(transfersTo(null, { network: "sepolia", fromBlock: 1, toBlock: 2 }), /needs the address/);
+});
+
+test("only the selector is pushed into the RPC filter, never the recipient", () => {
+  // A recipient in `keys` would be compared numerically by the node, so a
+  // formatting difference or an ignored filter produces the same empty page as
+  // nobody having forwarded. The filter stays unambiguous and the comparison
+  // stays here.
+  const endpoint = eventsEndpoint([{ events: [], continuation_token: null }]);
+  return transfersTo(RUIDO, {
+    network: "sepolia",
+    fromBlock: 1,
+    toBlock: 2,
+    endpoints: ["http://x"],
+    fetch: endpoint.fetch,
+  }).then(() => {
+    const filter = endpoint.calls[0].params[0].filter;
+    assert.deepEqual(filter.keys, [[TRANSFER_SELECTOR]]);
+    assert.equal(filter.address, STRK_TOKEN);
+    assert.equal(filter.from_block.block_number, 1);
+    assert.equal(filter.to_block.block_number, 2);
+    assert.ok(
+      !JSON.stringify(filter).includes(RUIDO),
+      "the recipient must not appear in the request at all",
+    );
+  });
 });

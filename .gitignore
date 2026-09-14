@@ -41,6 +41,12 @@ data/_smoke-rh.json
 # second one cannot be forgotten and committed.
 shots/crop*.html
 
+# Scratch from verification runs: captured smoke output, manifest diffs, tree
+# comparisons, the upload-verification script. Harness, never project content —
+# and a scratch file that lands in a commit is one somebody has to explain
+# later, which is the same failure as a stray key with a friendlier face.
+tmp/
+
 # The assembled site. CI rebuilds it from scripts/build-site.mjs, and committing
 # it would mean two copies of every measurement that can disagree.
 _site/

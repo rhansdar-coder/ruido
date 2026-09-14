@@ -215,6 +215,158 @@ export function transfersIn(receipt, { token = STRK_TOKEN } = {}) {
 }
 
 /**
+ * Every `Transfer` of `token` TO one address, over a block range.
+ *
+ * The reconciliation's other half. `readReceipt` answers "what did this one
+ * transaction do"; this answers "what has ever arrived at this address", which
+ * is the question a finding about a missing forwarding actually needs — and it
+ * cannot be answered with a hash, because the transfer a provider owes is one
+ * Ruido never sent and has no hash for.
+ *
+ * ## Why the recipient filter is LOCAL, and that is not an optimisation
+ *
+ * The natural way is to push the recipient into the RPC's `keys` filter and let
+ * the node do the work. That is rejected, and the reason is the failure
+ * direction: `keys` is positional and its felts are compared numerically, so a
+ * formatting difference, an unsupported filter or a node that quietly ignores
+ * it all produce the SAME observable result — an empty page. An empty page reads
+ * as "no provider ever forwarded", which is an accusation against every honest
+ * provider in the book. A local filter cannot fail that way: the page is the
+ * page, and the comparison is this code's own.
+ *
+ * Only the selector goes into the filter, because a selector is unambiguous.
+ *
+ * ## And why it returns a COUNT of what it looked at
+ *
+ * `{ transfers, scanned, pages }` rather than a bare array, because "zero
+ * transfers to Ruido" and "zero events were examined" are the same array and
+ * completely different findings. The second means the range or the endpoint is
+ * wrong and nobody should conclude anything; the caller has to be able to tell,
+ * and a bare array is exactly what makes that impossible.
+ *
+ * It REFUSES rather than returning a partial list: a truncated list of arrivals
+ * is a list of missing forwards that are not missing. Same fail-closed direction
+ * as `readReceipt`, and `undefined` means the same thing here — nobody could say.
+ */
+export async function transfersTo(
+  address,
+  {
+    network,
+    fromBlock,
+    toBlock,
+    token = STRK_TOKEN,
+    endpoints = endpointsFor(network),
+    fetch: doFetch = fetch,
+    timeoutMs = 15_000,
+    pageSize = 200,
+    maxPages = 50,
+    onFailure = null,
+  } = {},
+) {
+  if (!address) throw new Error("transfersTo needs the address to look for");
+  if (!Number.isInteger(fromBlock) || !Number.isInteger(toBlock)) {
+    throw new Error(`transfersTo needs a block range, got ${fromBlock}..${toBlock}`);
+  }
+  if (fromBlock > toBlock) {
+    throw new Error(`transfersTo got an empty range: ${fromBlock}..${toBlock}`);
+  }
+  const want = String(address).toLowerCase();
+  let lastError = null;
+
+  for (const endpoint of endpoints) {
+    const transfers = [];
+    let scanned = 0;
+    let pages = 0;
+    let cursor = null;
+
+    try {
+      do {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        let text;
+        try {
+          const response = await doFetch(endpoint, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "starknet_getEvents",
+              params: [
+                {
+                  filter: {
+                    from_block: { block_number: fromBlock },
+                    to_block: { block_number: toBlock },
+                    address: token,
+                    keys: [[TRANSFER_SELECTOR]],
+                  },
+                  chunk_size: pageSize,
+                  continuation_token: cursor,
+                },
+              ],
+            }),
+            signal: controller.signal,
+          });
+          text = await response.text();
+        } finally {
+          clearTimeout(timer);
+        }
+
+        // A proxy or captive portal answers HTML with a 200 — the same trap
+        // `readReceipt` guards, and here it matters more: parsed as JSON it
+        // throws, but a proxy that answers `{}` would yield an empty page and
+        // therefore a false accusation.
+        if (text.trim().startsWith("<")) {
+          throw new Error(`endpoint answered HTML, not JSON: ${endpoint}`);
+        }
+        const body = JSON.parse(text);
+        if (body.error) {
+          throw new Error(`endpoint refused: ${body.error.message ?? body.error.code}`);
+        }
+        if (!body.result || !Array.isArray(body.result.events)) {
+          throw new Error(`endpoint returned a page this reader does not understand: ${endpoint}`);
+        }
+
+        for (const raw of body.result.events) {
+          scanned += 1;
+          const decoded = decodeTransfer(raw, { token });
+          if (!decoded) continue;
+          // The local comparison, and the reason this function exists at all.
+          if (String(decoded.to).toLowerCase() !== want) continue;
+          transfers.push({
+            txHash: raw.transaction_hash ?? null,
+            block: raw.block_number ?? null,
+            from: decoded.from,
+            to: decoded.to,
+            value: decoded.value,
+          });
+        }
+
+        cursor = body.result.continuation_token ?? null;
+        pages += 1;
+        if (cursor && pages >= maxPages) {
+          // Refused rather than truncated: the caller would otherwise reconcile
+          // against a partial list and report the rest as unpaid.
+          throw new Error(
+            `more than ${maxPages} pages of ${pageSize} events in ${fromBlock}..${toBlock}; ` +
+              "narrow the range rather than reconciling against a truncated list",
+          );
+        }
+      } while (cursor);
+
+      return { transfers, scanned, pages };
+    } catch (error) {
+      // Restart the whole walk on the next endpoint, never resume: a set
+      // assembled from two endpoints' pages is a set nobody has verified.
+      lastError = `${endpoint}: ${error.message}`;
+    }
+  }
+
+  if (onFailure && lastError) onFailure(lastError);
+  return undefined;
+}
+
+/**
  * Normalises a `starknet_getTransactionReceipt` response.
  *
  * Kept separate from the reading so the four verdicts can be tested against
