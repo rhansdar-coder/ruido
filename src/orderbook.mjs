@@ -62,6 +62,7 @@
 import { quote, MODES } from "./quote.mjs";
 import { PROVIDER_VERSION } from "./provider.mjs";
 import { UNIT } from "./pool.mjs";
+import { COORDINATION_FEE_BPS, commissionDisclosure } from "./commission.mjs";
 
 /**
  * Field names that must never appear in an offer, matched case-insensitively and
@@ -100,6 +101,56 @@ export const OFFER_FORBIDDEN = [
 
 /** BigInt does not survive JSON and every amount here is a felt. */
 export const wireNumber = (value) => (typeof value === "bigint" ? value.toString() : value);
+
+/**
+ * The coordination fee a row discloses, read from the provider's terms.
+ *
+ * The RATE is checked against this deployment's own, and that check is the
+ * point: the rate is the protocol's business, not a provider's. The fee comes
+ * out of the price the buyer pays, so a provider left to declare its own rate
+ * could either understate the cut inside its price or set a rate nobody agreed
+ * to — and the first of those is invisible by construction, which is why the
+ * disclosure exists at all.
+ *
+ * What remains unverifiable is whether the money actually moved. That is named
+ * in `unverified()` rather than implied here: the book checks the rate and can
+ * say so, and it cannot see the forwarding and says that too.
+ *
+ * `rate` is injectable so the branches that only run once a rate is set can be
+ * tested rather than waited for — this deployment charges nothing, and a rule
+ * that has never executed is a rule nobody has checked. Same reason `tag` is a
+ * parameter of `amountDue`.
+ */
+export function readCoordination(terms, { rate = COORDINATION_FEE_BPS } = {}) {
+  const declared = terms?.coordination ?? null;
+
+  // Absent is honest only while nothing is charged. Once a rate is set, a row
+  // that does not say where the fee is forwarded is a row with an undisclosed
+  // cut inside its price — the one thing the disclosure is for.
+  if (!declared) {
+    if (rate > 0) {
+      throw new Error(
+        `this deployment charges a ${rate} basis point coordination fee, so a row ` +
+          "must say where it is forwarded — a price with an undisclosed cut in it is a price a " +
+          "buyer cannot compare against another provider's",
+      );
+    }
+    return commissionDisclosure();
+  }
+
+  const disclosure = commissionDisclosure({
+    bps: declared.bps ?? rate,
+    address: declared.address ?? null,
+  });
+
+  if (disclosure.bps !== rate) {
+    throw new Error(
+      `this row declares a ${disclosure.bps} basis point coordination fee and this deployment ` +
+        `charges ${rate}: the rate is the protocol's, not the provider's`,
+    );
+  }
+  return disclosure;
+}
 
 /**
  * A provider's published terms, turned into one row of the book.
@@ -153,6 +204,12 @@ export function offerFromTerms(document, { endpoint, registeredAt = null } = {})
     // Derived rather than copied: a provider with no address cannot be paid, and
     // a row that omitted the fact would send a buyer to a dead end.
     payable: Boolean(terms.address),
+    // Derived rather than copied, for the same reason: a price with an
+    // undisclosed cut inside it is a price that cannot be compared, and the row
+    // is where comparability lives. Always present, so "charges nothing" is a
+    // statement the row makes rather than a field a reader has to notice is
+    // missing.
+    coordination: readCoordination(terms),
     registeredAt,
     // Everything a provider asserts about itself and the book cannot check. Kept
     // in its own bag so that a reader has to reach for it deliberately.
@@ -351,6 +408,11 @@ export function rankOffers(offers, { targetCell, bits, mode = "window", network 
 export function unverified(offer) {
   const hearsay = [];
   if (offer.claimed) hearsay.push("claimed");
+  // A row that discloses a fee has declared something the book cannot see. The
+  // book checks the RATE against its own, but not whether the forwarding ever
+  // happened — only a transfer on the rail shows that, and reading Ruido's own
+  // address is a different job from reading a provider's terms.
+  if (offer.coordination?.charged) hearsay.push("coordination");
   // `reachable` is the book's own observation, but it is one observation of one
   // endpoint at one moment, and it says nothing about whether the provider will
   // still be there when the window opens.

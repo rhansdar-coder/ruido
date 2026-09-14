@@ -24,6 +24,7 @@ import {
   offerQuote,
   rankOffers,
   unverified,
+  readCoordination,
   bookPrivacy,
   serialiseBook,
   parseBook,
@@ -468,10 +469,81 @@ test("a provider's terms are projected, so a secret in them is never republished
 test("the routes a provider advertises do not become fields on its row", () => {
   const offer = offerFromTerms({ terms: termsFor(), endpoints: { order: "POST /orders" } }, { endpoint: "http://x" });
   assert.deepEqual(Object.keys(offer).sort(), [
-    "address", "claimed", "endpoint", "feePerCall", "ladder", "lastSeenAt", "margin",
-    "maxDecoys", "network", "orderVersion", "payable", "providerVersion", "reachable",
-    "registeredAt",
+    "address", "claimed", "coordination", "endpoint", "feePerCall", "ladder", "lastSeenAt",
+    "margin", "maxDecoys", "network", "orderVersion", "payable", "providerVersion",
+    "reachable", "registeredAt",
   ]);
+});
+
+// --- the fee disclosure, which is where comparability lives ------------------
+
+test("a row always says whether it charges a coordination fee, rather than staying silent", () => {
+  const offer = offerFor("http://127.0.0.1:8081");
+  assert.deepEqual(offer.coordination, {
+    bps: 0,
+    charged: false,
+    address: null,
+    note: "no coordination fee is charged, and a row would say so if one were",
+  });
+  assert.ok(
+    !unverified(offer).includes("coordination"),
+    "a row that charges nothing has nothing unverified to declare",
+  );
+});
+
+test("the RATE is the protocol's, so a row that declares its own is refused", () => {
+  // The fee comes out of the price the buyer pays, so a provider left to declare
+  // its own rate could understate the cut inside its price — and that failure is
+  // invisible by construction. This is the check that stops it.
+  assert.throws(
+    () => readCoordination({ coordination: { bps: 500, address: ADDRESS } }),
+    /the rate is the protocol's, not the provider's/,
+  );
+});
+
+test("once a rate is set, a row that does not say where it forwards is refused", () => {
+  // Absent is honest while nothing is charged. Once something is, silence is an
+  // undisclosed cut inside a price the buyer is comparing against another's.
+  assert.throws(
+    () => readCoordination({}, { rate: 500 }),
+    /must say where it is forwarded/,
+  );
+  assert.throws(
+    () => readCoordination({ coordination: null }, { rate: 500 }),
+    /must say where it is forwarded/,
+  );
+});
+
+test("a row that declares the deployment's own rate, with a destination, is disclosed", () => {
+  const disclosure = readCoordination(
+    { coordination: { bps: 500, address: ADDRESS } },
+    { rate: 500 },
+  );
+  assert.equal(disclosure.charged, true);
+  assert.equal(disclosure.bps, 500);
+  assert.equal(disclosure.address, ADDRESS);
+  assert.match(disclosure.note, /part of the price above, not added to it/);
+});
+
+test("a declared rate with no destination is refused, because the row would disclose nothing", () => {
+  assert.throws(
+    () => readCoordination({ coordination: { bps: 500 } }, { rate: 500 }),
+    /needs the address it is forwarded to/,
+  );
+});
+
+test("a rate that is not a whole number of basis points is refused by the arithmetic's own rule", () => {
+  assert.throws(() => readCoordination({ coordination: { bps: 1.5 } }), /non-negative whole number/);
+  assert.throws(() => readCoordination({ coordination: { bps: -1 } }), /non-negative whole number/);
+});
+
+test("a disclosed fee is named as unverified, because the book cannot see the forwarding", () => {
+  // The book checks the RATE against its own; it cannot see whether the money
+  // moved. Only a transfer on the rail shows that, so the field is hearsay and
+  // is labelled as such rather than ranked on.
+  const offer = offerFor("http://127.0.0.1:8081");
+  assert.ok(unverified({ ...offer, coordination: { charged: true } }).includes("coordination"));
+  assert.ok(!unverified({ ...offer, coordination: { charged: false } }).includes("coordination"));
 });
 
 test("the `claimed` bag IS copied, so a secret in it is refused", () => {

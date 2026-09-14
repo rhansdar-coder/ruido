@@ -86,6 +86,7 @@ export function providerTerms({
   margin = 0n,
   address = null,
   maxDecoys = 100_000,
+  coordination = null,
 } = {}) {
   if (!Number.isInteger(ladder) || ladder < 1) {
     throw new Error(`a ladder needs at least one rung, got ${ladder}`);
@@ -107,6 +108,13 @@ export function providerTerms({
     margin: cut,
     address,
     maxDecoys,
+    // Absent by default, and that is the truth rather than a placeholder: a
+    // provider that forwards nothing declares nothing. This is an ADDITIVE
+    // optional field, so `PROVIDER_VERSION` does not move — that version tracks
+    // the unit of `margin`, and nothing here changes a unit. The book reads it
+    // in `readCoordination` (src/orderbook.mjs), and the provider's obligation to
+    // forward is `commissionRequest` (src/commission.mjs).
+    coordination,
   };
 }
 

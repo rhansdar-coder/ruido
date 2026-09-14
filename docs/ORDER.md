@@ -363,9 +363,18 @@ provider that matched on shape alone would credit payments it cannot spend.
 
 ## The commission: how Ruido would be paid
 
-Nothing in this repository charges or receives a coordination fee. There is no
-rate, no address, no field and no code path — this section is a design, and it is
-written down because the answer is not obvious and the obvious answer is wrong.
+The mechanism is built and the rate is not set. `src/commission.mjs` computes the
+second leg, every offer row carries the disclosure, and `reconcile()` separates
+the four answers a forwarding can give. What is missing is a rate
+(`COORDINATION_FEE_BPS` is zero), an address (this repository has none), and the
+sending itself, which needs a signed transaction and a key.
+
+That split is deliberate rather than unfinished, and it is the same split the
+rest of this document makes: the arithmetic is the part that has to be right
+before a rate means anything, and a rate published before the arithmetic was
+checked would be a promise about a number nobody had computed. The section is
+also written down because the answer is not obvious and the obvious answer is
+wrong.
 
 ### It cannot be a slice of the buyer's payment
 
@@ -435,15 +444,22 @@ invoice is not a whole number of STRK, so a commission was **not expressible at
 all** while every amount was whole — the same constraint that left a provider's
 own margin expressible only as 0%, 50% or 100%.
 
-### What is not built
+### What is built, and what is not
 
 | | |
 |---|---|
-| `coordinationFeeBps` | **not set.** No rate is published, so no provider could compute one |
+| the arithmetic | **built.** `commissionFor` in `src/commission.mjs`, floored twice in the same direction so the fee can never exceed the published rate |
+| the second leg | **built.** `commissionRequest` returns it, `commissionOwed` reads it off a provider's own terms, and `serve-provider` reports it as **owed** at payment — computed, not sent |
+| the reconciliation | **built as a function.** `reconcile()` keeps `forwarded`, `short`, `missing` and `unmatched` apart. Nothing yet feeds it a chain read, so no order has been reconciled |
+| the disclosure in the offer row | **built.** Every row carries `coordination`, and the RATE is checked against the protocol's own — a provider cannot declare its own |
+| `coordinationFeeBps` | **not set.** `COORDINATION_FEE_BPS` is zero, so every row currently discloses "no fee" |
 | a receiving address | **not published.** Ruido has no address anywhere in this repository |
-| the second `paymentRequest` | **not written.** The rail supports it; nothing calls it |
-| the reconciliation | **not written.** Nothing reads Ruido's own transfers and compares them to revealed orders |
-| the disclosure in the offer row | **not written.** `offerFromTerms` copies a fixed set of fields and a fee is not among them |
+| the sending | **not built.** Moving the second leg needs a signed transaction and a key — the same deferral as the emitter |
+
+The last three rows are one gap seen three ways, and it is worth saying what
+closes it: a rate, an address, and a signer. Until then the mechanism is a
+computation and a disclosure, which is exactly as much as can be checked without
+moving money.
 
 ## Traps paid for
 

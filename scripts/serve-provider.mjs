@@ -53,6 +53,7 @@ import { parseWindowProof } from "../src/order.mjs";
 import { admitReveal, resolveHeight, HEIGHT_SOURCE } from "../src/reveal.mjs";
 import { endpointsFor } from "../src/blockheight.mjs";
 import { paymentRequest, readReceipt, verifyPayment, consume } from "../src/payment.mjs";
+import { commissionOwed } from "../src/commission.mjs";
 import { strkToBase, baseToStrk } from "../src/pool.mjs";
 import {
   assertBindable,
@@ -467,6 +468,14 @@ const server = createServer(async (request, response) => {
       PAID_TX = consume(PAID_TX, verdict.payment);
       record.invoice = markPaid(record.invoice, verdict);
 
+      // What the provider now owes Ruido, if its own terms declared a fee. Kept
+      // as a request rather than a transfer for the same reason the emission
+      // below is kept as a plan: sending it needs a signed transaction and a
+      // key, and this process has neither. The obligation is expressed here so
+      // that a missing forwarding is a fact somebody can check rather than a
+      // promise nobody wrote down.
+      record.commission = commissionOwed(record.invoice, record.order, TERMS);
+
       // Planning happens at payment, and emission would happen next. The plan is
       // produced here so its shape can be inspected before any money is spent on
       // gas — `summarisePlan` is the check that every decoy is inside the window.
@@ -482,8 +491,14 @@ const server = createServer(async (request, response) => {
         paid: record.invoice.paid,
         plan: record.plan,
         summary: summarisePlan(record.plan, { ladder: TERMS.ladder }),
+        // Null when nothing is charged, which is the truth rather than an
+        // omission — see `commissionOwed`.
+        commission: record.commission,
         // Said out loud so nobody reads "paid" as "emitted".
         emission: "planned, NOT broadcast — broadcasting needs the emitter and a local node",
+        forwarding: record.commission
+          ? "owed, NOT sent — sending the second leg needs a signed transaction and a key"
+          : "nothing owed: these terms declare no coordination fee",
       });
     }
 

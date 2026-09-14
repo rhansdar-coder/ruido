@@ -35,6 +35,10 @@ export const DOMAIN = {
   // The payment tag is derived in the same scheme as everything it is derived
   // from, so "the tag is a hash of the order" is one convention rather than two.
   payment: "ruido.payment.v1",
+  // The commission's own invoice id, derived from the provider's. A second leg
+  // that reused the first leg's id would have two different amounts claiming to
+  // be the same bill.
+  commission: "ruido.commission.v1",
 };
 
 /** Only the two networks the STRK20 pool is deployed on carry orders. */
