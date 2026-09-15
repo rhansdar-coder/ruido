@@ -1,11 +1,29 @@
 # Runbook: from a verified interface to an observed expansion
 
-Everything the emitter needs is verified except one thing: the expansion of
-`UseNote` and `CreateEncNote`. Those two have only ever been *read from the
-source*, because provoking them needs real subchannel and note state, and a
-throwaway identity has none.
+**Updated 2026-09-14.** The blocker is now narrower than this file originally
+stated, and the narrowing came from a probe rather than from reading.
 
-This is what it takes to close that, and what to build once it is closed.
+`npm run check:decoy` builds the decoy set with the real deployed ABI and asks
+the live pool to compile it. The pool answers **`SUBCHANNEL_NOT_FOUND`** — it
+read the whole set and went looking for state. A set with a short payload answers
+`Failed to deserialize param #3` instead, so the two are distinguishable and the
+first one means the **wire format is correct**.
+
+The same probe found the limit of that result: `[CreateEncNote, UseNote]` is out
+of order and the pool answers `SUBCHANNEL_NOT_FOUND` too, not
+`ACTIONS_OUT_OF_ORDER`. **The subchannel lookup runs before the order check**, so
+a decoy set without a subchannel never reaches it. That splits what remains into
+two, and they are the same dependency:
+
+| still unobserved | why |
+|---|---|
+| the **expansion** of `UseNote` and `CreateEncNote` | needs a real subchannel and a real note |
+| the **order rules for this set** | the subchannel lookup runs first, so the check is never reached |
+
+What IS verified for this set: the encoding, the field order, the variant index,
+and the parameter names of `compile_actions`. `src/emitter.mjs` implements the
+order rules from the source and says so in its header rather than implying the
+contract confirmed them.
 
 ---
 
@@ -115,16 +133,30 @@ assembler stops being written from a reading of the source.
 
 ## What we build once the node is up
 
-1. **`src/emitter.mjs`** — assemble the `ActionSet` (`UseNote` phase 4, then
-   `CreateEncNote` × (N+1) phase 5), encode it with the encoder this repository
-   already has, and walk the seven-step pipeline: compile → same-block preflight
-   → signed proof invocation → `starknet_proveTransaction` → compare the proved
-   server actions against the preflight → signed `apply_actions` → receipt.
+**Half of item 1 is already built, and it is the half that does not need the
+node.** `src/emitter.mjs` assembles the `ActionSet` (`UseNote` phase 4, then
+`CreateEncNote` × (N+1) phase 5), checks the three rules, and encodes it with the
+encoder this repository already has. `npm run emit` prints the whole thing as a
+dry run, and `npm run check:decoy` holds the encoding against the deployed pool.
+What is left of item 1 is the network half, which is exactly the part that needs
+the host.
+
+1. **The seven-step pipeline** — compile → same-block preflight → signed proof
+   invocation → `starknet_proveTransaction` → compare the proved server actions
+   against the preflight → signed `apply_actions` → receipt. `scripts/emit.mjs`
+   refuses `--submit` today and names the two loopback endpoints it would need,
+   because steps 2 and 4 carry the pool viewing key and must not leave the
+   operator's trust boundary.
 2. **The observation script** — submit the minimal set above and dump the
    expansion. This is the deliverable that closes the finding.
 3. **The event read-back** — after a submission, read `EmitEncNoteCreated` and
    `EmitNoteUsed` to record the decoys' note commitments. Settlement checks those
    later, so nothing emitted without them counts.
+4. **The order-rule confirmation** — once a subchannel exists, re-run
+   `npm run check:decoy` with an out-of-order set and watch for
+   `ACTIONS_OUT_OF_ORDER` instead of `SUBCHANNEL_NOT_FOUND`. That single flipped
+   answer is what moves the order rules from "read from the source" to "measured",
+   and the script already runs the case.
 
 ## What it costs
 

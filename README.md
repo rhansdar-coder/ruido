@@ -190,6 +190,8 @@ stops one batch of decoys being sold twice, is in
 | `npm run verify:actions` | Decode real `apply_actions` calldata, resolving the class per block; requires exact consumption |
 | `npm run recon:emitter` | Read the deployed pool interface and unwrap one real transaction |
 | `npm run verify:compile` | Verify the action-order rules and reproduce `ClientAction` → `ServerAction` against the deployed pool, using a throwaway identity |
+| `npm run check:decoy` | Ask the deployed pool to compile a decoy set, and require that it *reads* the wire format (`SUBCHANNEL_NOT_FOUND`) rather than failing to deserialize it — with the short-payload case as the negative control |
+| `npm run emit` | Print the decoy set the emitter would submit: the actions, the three rules, the fee and the calldata. `--submit` is refused, and the refusal names the two loopback endpoints it would need |
 | `npm run verify:encode` | Round-trip the calldata **encoder** against real transactions — decode, re-encode, require the felts back identical. `--from <block>` aims it at the live class |
 | `npm run check:screening` | Cross-tabulate what the contract *can* screen (deposit / invoke / neither) against what the calldata carried, per class. `--from <block>` targets the live class |
 | `npm run check:invokes` | Read every invoke target out of the corpus and each one's `get_open_note_screening_policy` live, so the invoke case is answered from data rather than from a node |
@@ -208,7 +210,7 @@ stops one batch of decoys being sold twice, is in
 | `npm run site` | Assemble `_site/` — the exact artifact Pages publishes — and verify nothing is missing |
 | `npm run site:check` | Verify the artifact manifest without writing anything |
 | `npm run web` | Dashboard at http://127.0.0.1:8080 |
-| `npm test` | 463 tests: adversary classifier, keccak vectors, large-input regressions, event decoding, denomination join, calldata decoding (Span, Option, tuples, u256, exact consumption), calldata encoding (round-trip, the ambiguous `Option<Option<T>>`, short-form refusals), cover placement ordering and price curve, the split commitment, quoting, settlement and the double-sell guard, the provider's accept/refuse rules and decoy plan (including a margin charged per decoy, the margin quantisation that keeps room for the payment tag, and the emitter refusal that stops a provider accepting work it could not deliver), the sale gate (the provider's refusal and the buyer's verdict being one sentence, and every truthy value that is not an explicit `true` — the string `"false"` included — read as a no), the whole trade end to end with no chain, the reveal gate (early / wrong / unanswerable heights, where the height came from, and the four-step journey), the chain-height reader (rotation, the three ways a public endpoint lies, and never defaulting to zero), the payment rail (the per-order tag and its collision bound, `u256` transfer decoding at both widths, the four verdicts, and the first-claim registry), the coordination fee (both legs carrying the same tag with different amounts, the fee floored so it can never exceed the published rate, the refusal to ask for a leg that rounds to nothing, the rate validated in one place for the arithmetic, the row and the book's own startup alike, and the four reconciliation answers — a dropped tag kept apart from a kept fee), the order book (the projection that keeps a buyer's cell out, whether a row can deliver stated beside whether it can be paid, every forbidden field refused by name and at any depth, the version refusal that keeps a `margin` from being read at the wrong unit, the fee disclosure whose rate the protocol sets rather than the provider, ranking by size *and* mode, and the book's price agreeing with the provider's invoice), provider and book trust (every loopback spelling, the bind guard that refuses an exposed process with no token, a constant-time token compare, a bounded limiter that grants nothing on a backwards clock, the book's listing route closed while browsing stays open, and the fetch guard that refuses a loopback, private or link-local endpoint — the cloud metadata service included, even when private addresses are allowed), artifact manifest, the crop guard (every loopback spelling accepted, a published origin refused, and an unparseable base refused too, so a screenshot run cannot end by photographing a 404 page), DOM contract (including the buy panel: every flag its command prints read by the client that parses it, the order file written and read back being one path, and `--from` left as a placeholder rather than a plausible default), EVM measurement |
+| `npm test` | 494 tests: adversary classifier, keccak vectors, large-input regressions, event decoding, denomination join, calldata decoding (Span, Option, tuples, u256, exact consumption), calldata encoding (round-trip, the ambiguous `Option<Option<T>>`, short-form refusals), the emitter's decoy set (the ABI variant index that is not the contract's phase, the three order rules with every violation reported rather than the first, the change that is not created when it is zero, the assembled set round-tripped through the validated codec pair, and the amounts that are base units rather than a ladder rung), cover placement ordering and price curve, the split commitment, quoting, settlement and the double-sell guard, the provider's accept/refuse rules and decoy plan (including a margin charged per decoy, the margin quantisation that keeps room for the payment tag, and the emitter refusal that stops a provider accepting work it could not deliver), the sale gate (the provider's refusal and the buyer's verdict being one sentence, and every truthy value that is not an explicit `true` — the string `"false"` included — read as a no), the whole trade end to end with no chain, the reveal gate (early / wrong / unanswerable heights, where the height came from, and the four-step journey), the chain-height reader (rotation, the three ways a public endpoint lies, and never defaulting to zero), the payment rail (the per-order tag and its collision bound, `u256` transfer decoding at both widths, the four verdicts, and the first-claim registry), the coordination fee (both legs carrying the same tag with different amounts, the fee floored so it can never exceed the published rate, the refusal to ask for a leg that rounds to nothing, the rate validated in one place for the arithmetic, the row and the book's own startup alike, and the four reconciliation answers — a dropped tag kept apart from a kept fee), the order book (the projection that keeps a buyer's cell out, whether a row can deliver stated beside whether it can be paid, every forbidden field refused by name and at any depth, the version refusal that keeps a `margin` from being read at the wrong unit, the fee disclosure whose rate the protocol sets rather than the provider, ranking by size *and* mode, and the book's price agreeing with the provider's invoice), provider and book trust (every loopback spelling, the bind guard that refuses an exposed process with no token, a constant-time token compare, a bounded limiter that grants nothing on a backwards clock, the book's listing route closed while browsing stays open, and the fetch guard that refuses a loopback, private or link-local endpoint — the cloud metadata service included, even when private addresses are allowed), artifact manifest, the crop guard (every loopback spelling accepted, a published origin refused, and an unparseable base refused too, so a screenshot run cannot end by photographing a 404 page), DOM contract (including the buy panel: every flag its command prints read by the client that parses it, the order file written and read back being one path, and `--from` left as a placeholder rather than a plausible default), EVM measurement |
 | `npm run shots` | Render the platform to `shots/` using the installed Chrome. `--only <name>` re-shoots one section |
 | `src/chains.mjs` | The chain registry. Adding a chain is a data change, not a code change |
 | `src/keccak.mjs` | starknet_keccak, hand-rolled and tested, because Node has no keccak256 |
@@ -466,8 +468,10 @@ mistake. Both tables come out of `npm run measure`, and both are re-runnable.
    observation from 64.93 candidates to 1.27. Getting there required fixing a
    join bug that had been silently *inflating* coverage by 508 notes — see
    [`docs/FINDING-strk20-sepolia.md`](docs/FINDING-strk20-sepolia.md).
-5. **On-chain decoy emitter.** Started, and both blockers are now named — see
-   [`docs/FINDING-emitter-interface.md`](docs/FINDING-emitter-interface.md).
+5. **On-chain decoy emitter.** The **assembly half is built**; the network half is
+   not, and that is the only part left that needs a host. See
+   [`docs/FINDING-emitter-interface.md`](docs/FINDING-emitter-interface.md) and
+   [`docs/RUNBOOK-emitter.md`](docs/RUNBOOK-emitter.md).
    The `apply_actions` calldata is decoded and verified against real transactions
    *and* against live contract state.
    - `user_private_key` is resolved: it is the pool's **viewing** key, not the
@@ -493,6 +497,26 @@ mistake. Both tables come out of `npm run measure`, and both are re-runnable.
      carried **0 `Some` / 3 `None`** and `Required` targets **12 `Some` /
      9 `None`** — necessary but not sufficient, exactly as the contract
      describes. `npm run check:invokes` reproduces the table.
+   - **The decoy set's wire format is verified against the deployed pool.**
+     `npm run check:decoy` assembles `[UseNote, CreateEncNote]` with the live ABI
+     and asks the live `compile_actions` to compile it. It answers
+     **`SUBCHANNEL_NOT_FOUND`** — the contract read the whole set and went looking
+     for state. A set with a short payload answers `Failed to deserialize param
+     #3` instead, and the script asserts the two stay distinct, because a result
+     that everything produces is not a result.
+   - **And the probe found the limit of that result.** `[CreateEncNote, UseNote]`
+     is out of order — phase 5 then 4 — and the pool answers
+     `SUBCHANNEL_NOT_FOUND` too, not `ACTIONS_OUT_OF_ORDER`. **The subchannel
+     lookup runs before the order check**, so a decoy set without a subchannel
+     never reaches it. The order rules are verified for `[Deposit]` and
+     `[Deposit, SetViewingKey]`, which need no subchannel; for the decoy set they
+     are implemented from the source in `src/emitter.mjs` and labelled as such.
+     That is a smaller claim than this item made before, and it is the measured
+     one.
+   - `src/emitter.mjs` assembles, checks and encodes; `npm run emit` prints the
+     set, the rules, the fee and the calldata. `--submit` is refused and names the
+     two loopback endpoints it would need, because steps 2 and 4 of the pipeline
+     carry the pool viewing key in calldata.
    - **`ClientAction` → `ServerAction` is reproduced.** `npm run verify:compile`
      provokes the pool's own ordering rules on the live contract and compiles a
      real action set, decoding the result with this repository's decoder. It needs

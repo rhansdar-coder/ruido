@@ -197,15 +197,35 @@ Both ports bind to `127.0.0.1` only. There is no LAN or public exposure in
 | action-set order rules | **live**, provoked on the deployed contract |
 | screening scope (which sets need an attestation) | **measured** on the live class |
 | node + prover stack | **written**, `erebus-ops-sepolia/`, needs the host above |
-| emitter: assembling `UseNote` + `CreateEncNote` | **not built.** Needs the expansion of those two actions, which needs real subchannel and note state — i.e. the node. |
+| emitter: assembling `UseNote` + `CreateEncNote` | **built and verified.** `src/emitter.mjs` assembles, checks and encodes the set, `npm run emit` prints it, and `npm run check:decoy` confirms the deployed pool reads the wire format |
+| emitter: the seven-step pipeline (steps 3-7) | **not built.** Needs the node, the prover and a funded account — i.e. the host below |
 | settlement | **specified**, not built — see [`TOKEN.md`](TOKEN.md) |
 
-The gap is one thing: the two actions that make up a decoy set have never been
-*observed* expanding, only read from the source, because provoking them needs real
-state. Everything around them — the encoding, the ordering, the screening scope,
-the compile, the proof pipeline — is verified.
+The gap has narrowed to two things, and they are the same dependency.
 
-The ordered steps to close it, and what gets built once the node is up, are in
+**The wire format is verified, and that is new.** `[UseNote, CreateEncNote]` is
+accepted by the deployed `compile_actions` and reaches the contract's body, where
+it reverts with `SUBCHANNEL_NOT_FOUND` — the contract read the whole set and went
+looking for state. A set with a short payload answers `Failed to deserialize
+param #3` instead, and that difference is what makes the first result mean
+something rather than being the response to everything. `npm run check:decoy`
+runs both and asserts they stay distinct.
+
+**What is still not observed, and now precisely which part.** Two things, and the
+probe above is what separates them:
+
+- **The expansion of `UseNote` and `CreateEncNote`.** Needs a real subchannel and
+  a real note. Unchanged.
+- **The order rules as applied to this set.** `[CreateEncNote, UseNote]` is out of
+  order — phase 5 then 4 — and the contract answers `SUBCHANNEL_NOT_FOUND`, not
+  `ACTIONS_OUT_OF_ORDER`. So the subchannel lookup runs BEFORE the order check,
+  and a decoy set without a subchannel never reaches it. The rules ARE verified
+  for `[Deposit]` and `[Deposit, SetViewingKey]`, which need no subchannel — and
+  that contrast is asserted by the same script, so it stays a measurement rather
+  than a memory. `checkSet` in `src/emitter.mjs` implements the rules from the
+  source for this set in the meantime, and says so in its own header.
+
+The ordered steps to close both, and what gets built once the node is up, are in
 [`RUNBOOK-emitter.md`](RUNBOOK-emitter.md). The short version of the blocker is
-circular and worth stating here too: **to spend a note you need a note, and
+still circular and still worth stating: **to spend a note you need a note, and
 getting one is the only leg that may need a third party.**

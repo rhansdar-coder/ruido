@@ -524,3 +524,109 @@ throw instead of picking:
 
 Both are pinned by tests, because "it throws" is a property that is easy to
 delete by accident and impossible to notice once gone.
+
+---
+
+## The decoy set's wire format, verified against the deployed pool
+
+Measured 2026-09-14 by `npm run check:decoy`. This closes the part of the gap that
+did not need a node, and it also shows precisely where the part that does need one
+begins — which turned out not to be where this document said.
+
+### The method, which is the reusable part
+
+`compile_actions` is a view, and it takes a `user_private_key`. Handing that to a
+public RPC hands over the ability to decrypt every note it protects. The way out
+is the same one `verify-compile.mjs` already used: a **throwaway scalar**,
+generated in the script, printed in the script, never funded and never
+registered. It controls nothing, so disclosing it discloses nothing.
+
+That is enough to ask the deployed pool a question it has never been asked:
+**can you read the calldata we build for a decoy set?**
+
+### The two failures that look alike, and how they are told apart
+
+A correctly encoded set and a wrongly encoded set both revert. What separates
+them is the name of the error:
+
+| the pool answers | what it means |
+|---|---|
+| `Failed to deserialize param #3` | it could not read our calldata at all |
+| `SUBCHANNEL_NOT_FOUND` | it read all of it, and went looking for state |
+
+Only the second means the wire format is right. So the check asserts the second
+**and runs a deliberately short payload to confirm the first still exists**. A
+check that cannot fail is not a check: if the contract ever started answering
+`SUBCHANNEL_NOT_FOUND` to everything, the first assertion would go on passing
+while meaning nothing. `scripts/check-decoy-set.mjs` runs both and requires them
+to stay distinct.
+
+Result: `[UseNote, CreateEncNote]`, assembled by `src/emitter.mjs` from the live
+ABI, is **read by the deployed contract**. The field order, the variant indices
+and the span length are all confirmed on-chain rather than by a fixture.
+
+### The limit of that result, which the same probe found
+
+`[CreateEncNote, UseNote]` is out of order — phase 5 then phase 4 — and the pool
+answers **`SUBCHANNEL_NOT_FOUND`**, not `ACTIONS_OUT_OF_ORDER`.
+
+That is a finding about the contract's *sequence*, not about our encoding: the
+subchannel lookup runs **before** the order check. So a decoy set without a
+subchannel never reaches the ordering rule, and this route cannot confirm it for
+this set.
+
+The contrast is what makes it a measurement rather than a guess. On the same
+deployed pool, in the same run:
+
+| set | phases | the pool answers |
+|---|---|---|
+| `[Deposit]` | 3 | `NO_REPLAY_PROTECTION` |
+| `[]` | — | `NO_REPLAY_PROTECTION` |
+| `[Deposit, SetViewingKey]` | 3 → 0 | `ACTIONS_OUT_OF_ORDER` |
+| `[UseNote, CreateEncNote]` | 4 → 5 | `SUBCHANNEL_NOT_FOUND` |
+| `[CreateEncNote, UseNote]` | 5 → 4 | `SUBCHANNEL_NOT_FOUND` |
+
+The rule exists and fires; it just fires for sets that need no subchannel. So
+`checkSet` in `src/emitter.mjs` implements the three rules **from the source** for
+the decoy set, and its header says so instead of implying the contract confirmed
+them. This is a smaller claim than the previous version of this document made, and
+it is the measured one.
+
+### A parameter name that only the chain knew
+
+The third parameter of `compile_actions` is **`client_actions`**, not `actions`.
+
+This is worth recording because of how it was found. The offline test fixture
+declared `actions`, `encodeCall` matched the name the fixture declared, and the
+test passed — a fixture agreeing with itself. The deployed contract refused the
+calldata, and the RPC said why. `scripts/check-decoy-set.mjs` now asserts the
+three parameter names against the live ABI, so a redeployment that renames one
+fails there rather than at submit time.
+
+The general shape: **`encodeCall` matches on name, so a plausible name is a hard
+failure.** That is the good kind of failure, and it is only reachable by talking
+to the chain.
+
+### Two smaller ones, both worth knowing
+
+- **The ABI arrives as a JSON string** from `starknet_getClassAt`, not as an
+  object. Passing it straight to `typeRegistry` produces an empty registry and a
+  confusing "no function compile_actions in ABI".
+- **The RPC wants `0x`-prefixed hex; the encoder returns `BigInt`.** Sending the
+  decimal form fails the whole call with `Invalid Params: felt: missing 0x
+  prefix` — a JSON-RPC parameter error, not a contract revert, so the error-name
+  parser returns nothing and the failure reads as an empty revert. That empty
+  detail is what a silent failure looks like here.
+
+### What this leaves
+
+| | |
+|---|---|
+| the set's **encoding** | **verified** against the deployed pool |
+| the set's **order rules** | implemented from the source; the contract's check is unreachable without a subchannel |
+| the two actions' **expansion** | unobserved — needs a real subchannel and a real note |
+| the **seven-step pipeline** | not built; steps 3-7 need the node, the prover and a funded account |
+
+The remaining two are the same dependency, and it is the one
+[`RUNBOOK-emitter.md`](RUNBOOK-emitter.md) describes: **to spend a note you need
+a note.**
