@@ -103,11 +103,30 @@ function run(script, args) {
   });
 }
 
-async function startProvider(port, extra = []) {
-  const child = spawn(NODE, [join(ROOT, "scripts/serve-provider.mjs"), "--port", String(port), ...extra], {
-    cwd: ROOT,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+async function startProvider(port, extra = [], { emits = true } = {}) {
+  // `--emits` by default, because every provider this smoke starts is meant to
+  // be one that can serve: what is under test is the door and the whole journey,
+  // and both are downstream of acceptance. A provider with no emitter refuses
+  // every order at the first check, which is correct and is also the reason the
+  // journey would stop at step two.
+  //
+  // The refusing provider gets its own section at the end, reached by passing
+  // `{ emits: false }` rather than by leaving a flag off. A behaviour that is
+  // only reachable by omission is a behaviour nobody exercises.
+  const child = spawn(
+    NODE,
+    [
+      join(ROOT, "scripts/serve-provider.mjs"),
+      "--port",
+      String(port),
+      ...(emits ? ["--emits"] : []),
+      ...extra,
+    ],
+    {
+      cwd: ROOT,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   let log = "";
   child.stdout.on("data", (c) => (log += c));
   child.stderr.on("data", (c) => (log += c));
@@ -524,6 +543,75 @@ try {
     const status = await (await fetch(`${provider.url}/orders/${record.order.id}`)).json();
     check(status.state === "paid", "the order is left unsettled, not half-settled", status.state);
     check(status.settlement === null, "no settlement was recorded on a refused reveal");
+
+    provider.child.kill();
+    chain.server.close();
+  }
+
+  // --- the provider that cannot deliver, which is every provider here today ---
+  //
+  // The emitter is not written, so a provider started from this repository cannot
+  // broadcast. Before this section existed it would accept the order, invoice it,
+  // verify a REAL on-chain payment and hand back a plan it would never emit —
+  // money taken for work it could not do, with the receipt to prove it. Now it
+  // refuses before an invoice exists, and this is the proof that the refusal
+  // happens over HTTP and not only in the library the unit tests reach.
+  {
+    rule("A provider with no emitter refuses to sell, before an invoice exists");
+
+    // Its own chain, and one that counts. The property under test is not only
+    // that the order is refused — it is that the refusal happens BEFORE anything
+    // on-chain is consulted. A refusal produced by a failing chain read looks
+    // identical from the outside and means something else entirely: it would
+    // move with the node's mood instead of being a property of the provider.
+    let chainReads = 0;
+    const chain = await startFakeChain({
+      answer: () => {
+        chainReads += 1;
+        return null;
+      },
+    });
+    sockets.push(chain.server);
+
+    const port = await freePort();
+    const provider = await startProvider(
+      port,
+      ["--at", String(INSIDE), "--address", ADDRESS, "--rpc", chain.url],
+      { emits: false },
+    );
+    children.push(provider.child);
+
+    const published = await (await fetch(`${provider.url}/terms`)).json();
+    check(published.terms.emits === false, "the terms declare it cannot emit", `emits=${published.terms.emits}`);
+    check(/NO EMITTER/.test(published.emitsNote ?? ""), "and the note says what that means for a buyer");
+
+    const health = await (await fetch(`${provider.url}/health`)).json();
+    check(
+      health.emits === false,
+      "and /health reports it beside payable",
+      `emits=${health.emits} payable=${health.payable}`,
+    );
+
+    // The order this client builds is a perfectly good one — same helper, same
+    // arguments as the happy path above. The refusal has to be about the
+    // PROVIDER, because a buyer who reaches a provider that cannot serve them
+    // has done nothing wrong, and a client-side check would put the burden on
+    // the wrong party.
+    const attempted = await buy(provider.url, 1, "0xsmoke");
+    check(attempted.code === 1, "the client cannot place an order at all", `exit ${attempted.code}`);
+    check(/refused \(422\)/.test(attempted.err), "and the provider refused it with a status, not a crash");
+    check(/no emitter/.test(attempted.err), "the refusal names the missing emitter");
+    check(/commitment to emit/.test(attempted.err), "and says why accepting it would have been the lie");
+
+    // Nothing was written down, so there is no invoice for anyone to pay. This
+    // is the check that matters: the failure being prevented is not a bad
+    // message, it is money arriving for cover that would never be emitted.
+    const recorded = await (await fetch(`${provider.url}/orders`)).json();
+    check(recorded.count === 0, "no order was recorded, so no invoice exists to pay", `${recorded.count}`);
+
+    // And the chain was never asked anything. The refusal is decided from the
+    // provider's own declaration, before a single receipt is read.
+    check(chainReads === 0, "the chain was never consulted, so the refusal cannot depend on a node", `${chainReads} read(s)`);
 
     provider.child.kill();
     chain.server.close();

@@ -9,6 +9,11 @@
 //
 //   npm run buy -- --provider ... --out orders/mi-orden.json
 //
+//   npm run buy -- --provider ... --mode blind --span 1709   # blind needs both
+//                                                            # the window and
+//                                                            # the span it is
+//                                                            # spread over
+//
 // `--out` writes the order and the reveal to a file, which is what the fourth
 // step (`npm run reveal`) reads. Without it the reveal is only printed, and a
 // terminal is not a place to keep the one secret the trade depends on: losing
@@ -75,6 +80,7 @@ const MODE = arg("mode", "window");
 const NETWORK = arg("network", "sepolia");
 const FROM = arg("from", null);
 const WIDTH = Number(arg("width", "20"));
+const SPAN = Number(arg("span", "0"));
 const DENOMINATION = arg("denomination", null);
 const TX = arg("tx", null);
 const SEED = Number(arg("seed", "1"));
@@ -110,6 +116,27 @@ if (DENOMINATION === null) {
 if (!DENOMINATIONS.includes(BigInt(DENOMINATION))) {
   die(`--denomination ${DENOMINATION} is not a rung of this ladder: ${DENOMINATIONS.map(String).join(", ")}`);
 }
+// Blind cover has to clear two independent filters, and only the first is
+// geometric: a decoy's block has to fall inside the window, and its denomination
+// has to be the buyer's rung. The second is 1/ladder and needs nothing; the first
+// is windowWidth/blockSpan and needs both numbers. Without a span the fraction is
+// undefined, and `landingRate` throws — which is what this used to do, as an
+// unhandled exception from three modules down, for a mode the CLI advertises.
+//
+// Defaulting the span to the window would be worse than refusing: windowWidth /
+// blockSpan would be exactly 1, blind cover would be numerically identical to
+// window-only, and it would be labelled "blind" the whole way. A price that is
+// right for the wrong reason is the failure this project exists to catch.
+if (MODE === "blind" && !(SPAN >= WIDTH)) {
+  die(
+    "blind cover spreads its decoys over a span of blocks and only the ones landing\n" +
+      "  inside your window count, so it needs --span <blocks> — at least the window\n" +
+      "  (--width " + WIDTH + ").\n" +
+      "  Window-only clears the block filter by construction and needs no span;\n" +
+      "  blind pays for clearing it by luck, which is why it is three orders of\n" +
+      "  magnitude more expensive at the defaults.",
+  );
+}
 
 const from = Number(FROM);
 const to = from + WIDTH;
@@ -134,6 +161,10 @@ const priced = quote({
   mode: MODE,
   network: terms.network,
   ladder: terms.ladder,
+  // Read only by blind cover, which is the only mode whose landing rate depends
+  // on geometry rather than on the ladder alone.
+  windowWidth: WIDTH,
+  blockSpan: SPAN,
 });
 
 // 3. Commit.

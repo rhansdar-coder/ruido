@@ -217,9 +217,10 @@ last one".
 | the window proof a provider is given | **live** — the half that lets it emit in time without learning the rung |
 | settlement and the double-sell guard | **live** — `src/settlement.mjs` |
 | the reveal gate (early / wrong / unanswerable) | **live** — `src/reveal.mjs`. Refuses while the window is open, fails closed on an unknown height |
-| a provider that reads, prices and plans an order | **live** — `src/provider.mjs`, `npm run serve:provider` |
+| a provider that reads, prices and plans an order | **live** — `src/provider.mjs`, `npm run serve:provider`. It **refuses every order** while it has no emitter, at the first check and before an invoice exists: accepting one *is* the commitment to emit, and charging for cover nobody will emit is the one thing this rail must not do |
 | a client that connects and buys | **live** — `npm run buy`. The whole trade is tested with no chain |
 | a client that closes the order | **live** — `npm run reveal`, the fourth step. Also tested with no chain |
+| a screen that reads a provider and says whether it can deliver | **live** — `app.html#buy`. It reads `/terms`, prices the order against the ladder that provider actually runs, and gates on `canSell()` — the same function and the same sentence `acceptOrder` refuses with, so the page cannot say "yes" over a provider about to say "no". It hands over the command; it does not build the order, because the client writes the reveal to a file |
 | the emitter | **not built** — see [`RUNBOOK-emitter.md`](RUNBOOK-emitter.md) |
 | a provider that **broadcasts** what it planned | **not built.** The plan is real; the emission is a stand-in for the emitter |
 | a payment rail | **live** — `src/payment.mjs`. Prepaid in STRK, and the invoice quotes an amount **unique to the order** so that a bare transfer can be bound to one. The provider reads the receipt and answers in four verdicts, not two. No escrow, no custody, no refunds — `TOKEN.md` §5 says run it invoiced or prepaid first |
@@ -228,18 +229,24 @@ last one".
 | on-chain settlement | **not built.** Settlement runs on a JSON file, not on Starknet |
 | a provider's own view of the chain height | **live** — `--verify` reads it from the chain on every reveal, and **refuses** the settlement rather than falling back to the buyer's number when the read fails. It does not need the emitter's node; that was a separate thing |
 
-Nineteen rows, fifteen live, one priced, three not built — and every live one was
+Twenty rows, sixteen live, one priced, three not built — and every live one was
 built without a node, a chain, or a key. That is the point: **the customer's side
 of Ruido is finished and untested against reality at the same time**, because
 what was missing was never code.
 
 The gap is now the emitter, and only the emitter. It is the *supply*, and
 everything above it has been built: a way to pay that clears, a book that lists
-supply without listing demand, and a provider that can be put on a host without
-being drained. What is left of the market is the one thing that needs the node —
-**an emission that is real** — plus the honest note that a provider still learns
-when its buyer transacts, which is the position being sold and belongs in any
-provider's written policy.
+supply without listing demand, a screen that tells a buyer what a provider can
+actually do, and a provider that can be put on a host without being drained. What
+is left of the market is the one thing that needs the node — **an emission that is
+real** — plus the honest note that a provider still learns when its buyer
+transacts, which is the position being sold and belongs in any provider's written
+policy.
+
+And the screen makes the gap legible rather than hiding it: pointed at any
+provider in this repository, it answers **cannot serve**, with the reason, and
+shows the commands as the shape of the trade rather than as something to run
+today.
 
 ## What this changes about the order of work
 

@@ -281,12 +281,38 @@
     background: var(--bg-2); color: var(--text);
   }
   input:focus, select:focus { outline: none; border-color: var(--accent); }
-  .kv { display: flex; justify-content: space-between; font-size: 13px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  /* `gap` and a right-aligned value, because the buy panel puts a seven-rung
+     ladder in this row and it collided with its own label: `space-between` with
+     no gap reads as "Ladder7 rungs", and a long mono value wrapping to two lines
+     was left-aligned under a right-aligned first line. */
+  .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 9px 0; border-bottom: 1px solid var(--border); }
   .kv:last-child { border-bottom: 0; }
-  .kv span:first-child { color: var(--muted); }
-  .kv span:last-child { font-family: var(--mono); }
+  .kv span:first-child { color: var(--muted); flex-shrink: 0; }
+  .kv span:last-child { font-family: var(--mono); text-align: right; }
   .note { font-size: 12px; color: var(--dim); margin-top: 14px; line-height: 1.6; }
   .warn-box { border-left: 2px solid var(--warn); padding-left: 14px; }
+
+  /* ---- buy ---- */
+  /* The same two-column shape as the simulator, and the same breakpoint. The
+     left column is the provider — what it says about itself — and the right is
+     what that means for an order. Keeping them side by side is the point: the
+     verdict sits next to the terms it was read from. */
+  .buy { display: grid; grid-template-columns: 320px 1fr; gap: 24px; align-items: start; margin-top: 44px; }
+  @media (max-width: 900px) { .buy { grid-template-columns: 1fr; } }
+  .opt { color: var(--dim); font-size: 11px; }
+  /* `ok` is the accent, which is the one colour on this site that means "this is
+     the thing working". `no` is amber — the same secondary the other warnings
+     use — and deliberately not red: a provider that cannot emit is the state of
+     this repository, not an error. */
+  .pill.ok { color: var(--accent); border-color: rgba(184, 255, 61, 0.45); }
+  .pill.no { color: var(--accent-2); border-color: rgba(255, 206, 77, 0.45); }
+  .cmd {
+    font: 12px/1.7 var(--mono); color: var(--text);
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 14px 16px; margin: 0 0 14px;
+    overflow-x: auto; white-space: pre;
+  }
+  #b-copy { margin-bottom: 4px; }
 
   /* ---- EVM / Robinhood Chain section ---- */
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }

@@ -47,7 +47,9 @@ const WIDTH = 20;
 const LADDER = DENOMINATIONS.length;
 const RUNG = DENOMINATIONS[3];
 
-const TERMS = providerTerms({ network: NETWORK });
+// `emits: true`: the reveal path is downstream of acceptance, and a provider
+// that cannot broadcast never accepts the order it would later reveal against.
+const TERMS = providerTerms({ network: NETWORK, emits: true });
 
 /** One buyer's order, ready to send. */
 function buyer({ seed = 1, rung = RUNG, from = FROM, width = WIDTH, bits = BITS, mode = "window" } = {}) {

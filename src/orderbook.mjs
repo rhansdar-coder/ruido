@@ -220,6 +220,15 @@ export function offerFromTerms(
     // Derived rather than copied: a provider with no address cannot be paid, and
     // a row that omitted the fact would send a buyer to a dead end.
     payable: Boolean(terms.address),
+    // The same shape and the same reason as `payable`, one step further along: a
+    // provider that cannot emit cannot deliver, and a row that omitted the fact
+    // would send a buyer to a dead end that costs them a real transfer first.
+    //
+    // `=== true` and not `Boolean(...)`, matching `canSell`: these terms arrive
+    // over HTTP, and the string "false" is truthy. A row that read it as a yes
+    // would list a provider that cannot deliver as one that can, and the gate
+    // would refuse it — two facts on one page that disagree.
+    emits: terms.emits === true,
     // Derived rather than copied, for the same reason: a price with an
     // undisclosed cut inside it is a price that cannot be compared, and the row
     // is where comparability lives. Always present, so "charges nothing" is a
@@ -429,6 +438,13 @@ export function unverified(offer) {
   // happened — only a transfer on the rail shows that, and reading Ruido's own
   // address is a different job from reading a provider's terms.
   if (offer.coordination?.charged) hearsay.push("coordination");
+  // A provider that says it CAN emit has asserted something the book can never
+  // test: testing it means watching the pool for the emission, which is a
+  // different job from reading terms. Note the asymmetry, and that it is the
+  // same one `coordination` uses — `emits: false` is deliberately NOT flagged,
+  // because understating your own capability costs you every order, and a claim
+  // that hurts the claimant is not what hearsay is for.
+  if (offer.emits) hearsay.push("emits");
   // `reachable` is the book's own observation, but it is one observation of one
   // endpoint at one moment, and it says nothing about whether the provider will
   // still be there when the window opens.

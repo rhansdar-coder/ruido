@@ -469,10 +469,38 @@ test("a provider's terms are projected, so a secret in them is never republished
 test("the routes a provider advertises do not become fields on its row", () => {
   const offer = offerFromTerms({ terms: termsFor(), endpoints: { order: "POST /orders" } }, { endpoint: "http://x" });
   assert.deepEqual(Object.keys(offer).sort(), [
-    "address", "claimed", "coordination", "endpoint", "feePerCall", "ladder", "lastSeenAt",
-    "margin", "maxDecoys", "network", "orderVersion", "payable", "providerVersion",
-    "reachable", "registeredAt",
+    "address", "claimed", "coordination", "emits", "endpoint", "feePerCall", "ladder",
+    "lastSeenAt", "margin", "maxDecoys", "network", "orderVersion", "payable",
+    "providerVersion", "reachable", "registeredAt",
   ]);
+});
+
+test("a row says whether the provider can deliver, beside whether it can be paid", () => {
+  // Both fields are derived rather than copied, and both exist so that a buyer
+  // is not sent to a dead end: `payable` covers money arriving, `emits` covers
+  // work leaving. A row with neither is a row nobody should order from, and it
+  // says so instead of looking normal.
+  const nothing = offerFromTerms(termsFor({ address: null }), { endpoint: "http://x" });
+  assert.equal(nothing.emits, false);
+  assert.equal(nothing.payable, false);
+
+  const working = offerFromTerms(termsFor({ emits: true }), { endpoint: "http://y" });
+  assert.equal(working.emits, true);
+  assert.equal(working.payable, true);
+});
+
+test("saying you CAN emit is hearsay; saying you cannot is not", () => {
+  // The asymmetry is deliberate, and it is the one `coordination` already uses:
+  // a claim that HELPS the claimant is hearsay, because the book cannot test it
+  // — testing it means watching the pool for the emission, which is a different
+  // job from reading terms.
+  const claims = offerFromTerms(termsFor({ emits: true }), { endpoint: "http://x" });
+  assert.ok(unverified(claims).includes("emits"));
+
+  // `emits: false` costs the provider every order it might have had, so it is
+  // not a claim anybody makes to their own advantage, and it is not flagged.
+  const modest = offerFromTerms(termsFor({ emits: false }), { endpoint: "http://x" });
+  assert.ok(!unverified(modest).includes("emits"));
 });
 
 // --- the fee disclosure, which is where comparability lives ------------------

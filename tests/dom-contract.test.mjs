@@ -517,6 +517,23 @@ test("the last-card span rule exists if and only if the count is odd", () => {
 // and a wrong count is a small claim that is not true — which in this project
 // is the whole problem. So the number is derived from the test files instead.
 
+test("every test file in tests/ is named in the test script", () => {
+  // The count above is derived from the files the test script NAMES, so a test
+  // file that exists but is not named is invisible to it — and invisible to
+  // `npm test`, which runs the list and not the directory. `tests/sale.test.mjs`
+  // was written, passed on its own, and was not in the list: the count stayed
+  // right and six tests never ran. A directory listing is the only thing that can
+  // see the difference.
+  const pkg = JSON.parse(read("package.json"));
+  const named = new Set(pkg.scripts.test.split(/\s+/).filter((f) => f.startsWith("tests/")));
+  const present = readdirSync(resolve(ROOT, "tests"))
+    .filter((f) => f.endsWith(".test.mjs"))
+    .map((f) => `tests/${f}`);
+  assert.ok(present.length > 10, `found only ${present.length} test files; the listing is wrong`);
+  const orphans = present.filter((f) => !named.has(f));
+  assert.deepEqual(orphans, [], `these test files exist but npm test never runs them: ${orphans.join(", ")}`);
+});
+
 test("the test count stated in the docs matches the tests that exist", () => {
   const pkg = JSON.parse(read("package.json"));
   const files = pkg.scripts.test.split(/\s+/).filter((f) => f.startsWith("tests/"));
@@ -626,3 +643,69 @@ test("the row counts stated in docs/CUSTOMER.md match the table", () => {
     "the status table has a row that is none of live, priced, or not built",
   );
 });
+
+// --- the buy panel ----------------------------------------------------------
+
+// The panel's whole output is a command. That makes it the one place on the site
+// where a string is an instruction, and a flag the client does not read is not a
+// typo — it is silently dropped, and the command does something else. `--from`
+// misspelled places an order for a window nobody chose; `--denomination`
+// misspelled hides a different rung. Neither fails loudly, which is why this is
+// checked against the client's own argument parser rather than by eye.
+
+/** The flags the panel prints, taken from the command it builds and nothing else. */
+const buyCommand = app.split("const parts = [")[1].split('el("b-command")')[0];
+const buyFlags = new Set([...buyCommand.matchAll(/--([a-z-]+)[ "`]/g)].map((m) => m[1]));
+
+/** The flags a script reads, from its own `arg()` / `flag()` calls. */
+const flagsReadBy = (file) =>
+  new Set([...read(file).matchAll(/\b(?:arg|flag)\("([a-z-]+)"/g)].map((m) => m[1]));
+
+test("the buy panel builds a command to check", () => {
+  // If the extractor stops matching, everything below passes vacuously.
+  assert.ok(buyFlags.size >= 6, `only found ${buyFlags.size} flags in the buy command`);
+});
+
+test("every flag the buy panel prints is a flag the client reads", () => {
+  const known = flagsReadBy("scripts/buy.mjs");
+  for (const flag of buyFlags) {
+    assert.ok(known.has(flag), `the panel prints --${flag}, which scripts/buy.mjs does not read`);
+  }
+});
+
+test("every flag the reveal step prints is a flag that script reads", () => {
+  const reveal = app.match(/"npm run reveal -- (.*)"/)?.[1];
+  assert.ok(reveal, "the panel no longer prints a reveal command");
+  const printed = [...reveal.matchAll(/--([a-z-]+)/g)].map((m) => m[1]);
+  assert.ok(printed.length >= 1, `found no flags in the reveal command: ${reveal}`);
+  const known = flagsReadBy("scripts/reveal.mjs");
+  for (const flag of printed) {
+    assert.ok(known.has(flag), `the panel prints --${flag}, which scripts/reveal.mjs does not read`);
+  }
+});
+
+test("the order file the panel writes is the one the reveal step reads", () => {
+  // Three steps, two paths, and they have to be the same path. A file written to
+  // one place and read from another fails at the fourth step — after the money
+  // has moved.
+  const written = buyCommand.match(/--out ([^\s"`]+)/)?.[1];
+  const readBack = app.match(/"npm run reveal -- --order ([^\s"]+)"/)?.[1];
+  assert.ok(written, "the panel's command no longer writes an order file");
+  assert.ok(readBack, "the panel's reveal step no longer names an order file");
+  assert.equal(written, readBack, "the order is written to one path and read from another");
+});
+
+test("the buy panel does not invent the block a spend is planned for", () => {
+  // `--from` is the one input no page can know: it is the block the buyer will
+  // spend in. A plausible-looking default here would be a number nobody chose,
+  // and the order would cover the wrong window while looking complete — which is
+  // the failure the whole window parameter exists to prevent. The panel leaves a
+  // placeholder, and this fails if someone ever "helpfully" fills it in.
+  assert.match(buyCommand, /--from <[a-z]+>/, "the panel's --from is no longer a placeholder");
+});
+
+test("the buy panel is on the instrument and not on the landing", () => {
+  assert.ok(appIds.has("b-url"), "the instrument has no buy panel");
+  assert.ok(!ids.has("b-url"), "the landing grew a buy panel; the landing is the argument, not the counter");
+});
+

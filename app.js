@@ -23,6 +23,12 @@
 
 import { mulberry32, randomInt } from "./src/rng.mjs";
 import { DENOMINATIONS, FEE_PER_CALL } from "./src/cover.mjs";
+import { quote } from "./src/quote.mjs";
+// From `sale.mjs` and not from `provider.mjs`, which is where the decision is
+// enforced: `provider.mjs` reaches `payment.mjs`, and `payment.mjs` evaluates
+// `Buffer.from("Transfer", "ascii")` at module scope. Importing it here would
+// stop this file loading at all, in a browser, for one boolean.
+import { canSell } from "./src/sale.mjs";
 import {
   buildPool, addCover, addWindowCover, addTargetedCover, summarise, report,
 } from "./src/anonymity.mjs";
@@ -630,6 +636,184 @@ function paintNoiseField() {
     `<g fill="var(--accent)">${bars.join("")}</g></svg>`;
 }
 
+// -------------------------------------------------------------------- buying
+
+// The front door, and the only panel on either page that leads to spending. It
+// spends nothing itself: it reads the terms a provider publishes, decides whether
+// that provider can deliver at all, prices the order against the ladder the
+// provider actually runs, and hands over the commands.
+//
+// It does NOT build the order, and that is a decision rather than an omission.
+// The client is `scripts/buy.mjs`, which writes the order *and the reveal* to a
+// file — and the reveal is the one secret the whole window/reveal split exists to
+// keep off the wire. A browser that generated it would be asking the buyer to
+// keep the trade's only secret in a download, and a second implementation of the
+// commitments in here would be a second thing that can be wrong.
+//
+// The gate is `canSell()`, the same function `acceptOrder` refuses with, so this
+// page cannot say "yes" over a provider that is about to say "no".
+
+const BUY_PANELS = [
+  "b-terms-panel", "b-order", "b-gate-panel", "b-price-panel",
+  "b-handoff", "b-pay-panel", "b-reveal-panel",
+];
+
+let buyTerms = null;
+let buyBase = null;
+
+const buyValue = (id) => String(el(id).value).trim();
+const buyToken = () => buyValue("b-token");
+const buyHeaders = () => (buyToken() ? { authorization: `Bearer ${buyToken()}` } : {});
+
+/** The rungs this provider's ladder actually covers, not the whole ladder. */
+const rungsOf = (terms) => DENOMINATIONS.slice(0, terms.ladder);
+
+async function readProvider() {
+  buyTerms = null;
+  buyBase = buyValue("b-url").replace(/\/+$/, "");
+  for (const id of BUY_PANELS) el(id).hidden = true;
+
+  if (!buyBase) {
+    el("b-note").textContent =
+      "A provider URL is required. There is no default, because a hardcoded one would be a provider nobody chose.";
+    return;
+  }
+
+  el("b-note").textContent = `Reading ${buyBase}/terms…`;
+
+  let published;
+  try {
+    const response = await fetch(`${buyBase}/terms`, { headers: buyHeaders() });
+    if (!response.ok) {
+      el("b-note").textContent = `${buyBase}/terms answered ${response.status}.`;
+      return;
+    }
+    published = await response.json();
+  } catch {
+    // A browser cannot tell "nothing is listening" from "this page is https and
+    // the provider is not", so the message names both rather than picking one and
+    // being wrong half the time.
+    el("b-note").textContent =
+      `Could not reach a provider at ${buyBase}. Start one with ` +
+      "`npm run serve:provider`. A page served over https cannot call a plain http " +
+      "provider, so open this page locally to try one.";
+    return;
+  }
+
+  buyTerms = published.terms ?? null;
+  el("b-note").textContent = `Read ${buyBase}/terms. Nothing else on this page has spoken to it.`;
+  paintProvider(published);
+}
+
+function paintProvider(published) {
+  const terms = published.terms;
+  const rungs = rungsOf(terms);
+
+  el("b-terms-panel").hidden = false;
+  el("b-network").textContent = terms.network;
+  el("b-ladder").textContent = `${terms.ladder} rungs · ${rungs.map(String).join(", ")} STRK`;
+  el("b-fee").textContent = `${terms.feePerCall} STRK per call`;
+  el("b-margin").textContent = terms.margin === "0" ? "none" : `${terms.margin} base units per decoy`;
+  el("b-emits").textContent = terms.emits ? "declared" : "no";
+  el("b-payable").textContent = terms.address ?? "no address";
+  el("b-height").textContent = published.heightSource ?? "";
+
+  // The verdict is the provider's own refusal, read back to the buyer before
+  // anything is built. When it is "no", the commands below are still shown and
+  // are labelled: what the trade looks like is worth seeing, and hiding it would
+  // leave the reader with a dead end and no picture of the door.
+  const verdict = canSell(terms);
+  el("b-verdict").textContent = verdict.ok ? "can serve" : "cannot serve";
+  el("b-verdict").className = `pill ${verdict.ok ? "ok" : "no"}`;
+  el("b-gate-panel").hidden = false;
+  el("b-gate").textContent = verdict.ok
+    ? published.emitsNote ?? ""
+    : `${verdict.reason} — so the commands below are the shape of the trade, not something to run today.`;
+  el("b-handoff-note").textContent = verdict.ok
+    ? "The provider above accepts orders. Run this, then pay the invoice it returns."
+    : "This provider refuses every order at the first check, so this command returns a refusal and no invoice. It is here because the door is part of the answer.";
+
+  el("b-order").hidden = false;
+  el("b-pay-panel").hidden = false;
+  el("b-paynote").textContent = published.paymentNote ?? "";
+  el("b-reveal-panel").hidden = false;
+  el("b-reveal-cmd").textContent = "npm run reveal -- --order orders/order.json";
+
+  el("b-denom").innerHTML = rungs.map((r) => `<option value="${r}">${r} STRK</option>`).join("");
+
+  paintOrder();
+}
+
+/**
+ * The price and the command, recomputed from the form.
+ *
+ * `quote` is the same function the simulator and the CLI use, so this figure and
+ * the one `npm run buy` prints cannot disagree. What is priced here and not
+ * there is the ladder: the simulator prices a model pool, and this prices the
+ * ladder the provider in the URL is actually running.
+ */
+function paintOrder() {
+  const terms = buyTerms;
+  if (!terms) return;
+
+  const cell = Number(buyValue("b-cell"));
+  const bits = Number(buyValue("b-bits-wanted"));
+  const mode = buyValue("b-mode");
+  const width = Number(buyValue("b-width"));
+  const span = Number(buyValue("b-span"));
+  const denomination = buyValue("b-denom");
+
+  el("b-span-field").hidden = mode !== "blind";
+
+  let priced = null;
+  try {
+    priced = quote({
+      targetCell: cell,
+      bits,
+      mode,
+      network: terms.network,
+      ladder: terms.ladder,
+      windowWidth: width,
+      blockSpan: span,
+    });
+  } catch (error) {
+    // `quote` refuses a cell below one and a blind order with no span. Those are
+    // half-typed form states, not bugs, so they are reported where the form is
+    // rather than thrown into the console.
+    el("b-price-panel").hidden = true;
+    el("b-handoff").hidden = true;
+    el("b-note").textContent = error.message;
+    return;
+  }
+
+  el("b-price-panel").hidden = false;
+  el("b-decoys").textContent = num(priced.decoys);
+  el("b-cost").textContent = `${priced.cost} STRK`;
+  el("b-delivered").textContent = `${priced.bitsDelivered} bits, for ${priced.bitsRequested} asked`;
+  el("b-price-note").textContent =
+    "Pool fee only — one `apply_actions` call per decoy, because decoys batched " +
+    "into one call share an origin and the measurement counts origins. Any " +
+    "provider margin is separate and is not in this figure.";
+
+  // The command. Everything the page knows is filled in; `--from` is left as a
+  // placeholder because the block a spend is planned for is the one thing here
+  // that no page can know, and a plausible-looking default would be a number
+  // nobody chose.
+  const parts = [
+    "npm run buy --",
+    `--provider ${buyBase}`,
+    `--cell ${cell}`,
+    "--from <block>",
+    `--denomination ${denomination}`,
+    `--bits ${bits}`,
+    `--mode ${mode}`,
+  ];
+  if (mode === "blind") parts.push(`--span ${span}`);
+  parts.push(`--width ${width}`, "--out orders/order.json");
+  el("b-command").textContent = parts.join(" \\\n  ");
+  el("b-handoff").hidden = false;
+}
+
 // -------------------------------------------------------------------- wiring
 
 // Mainnet leads, because it is the deployment that matters and because it is the
@@ -644,6 +828,13 @@ function paintNoiseField() {
 const params = new URLSearchParams(location.search);
 const REQUESTED_NET = params.get("net");
 const REQUESTED_FIND = params.get("find");
+// `?provider=` prefills the buy panel's URL and reads it on load, for the same
+// reason the other two exist: a link that lands on the right state is checkable,
+// and one that lands on a default and asks the reader to paste something is not.
+// It is also what makes the panel's two states — can serve, cannot serve —
+// something a capture can show rather than something only a person who clicked
+// has seen.
+const REQUESTED_PROVIDER = params.get("provider");
 
 let activeNetwork = MEASUREMENTS[REQUESTED_NET] ? REQUESTED_NET : "mainnet";
 // The finding is about chains with no shielded pool, so only an EVM chain is a
@@ -680,6 +871,27 @@ el("rdo-reset").addEventListener("click", () => {
 // lands on the inert stand-in.
 el("net-select").addEventListener("change", (event) => showMeter(event.target.value));
 el("find-select").addEventListener("change", (event) => showFinding(event.target.value));
+
+// The buy panel. `input` covers typing and `change` covers the two selects and
+// the number spinners; binding both is cheaper than deciding which fires when,
+// and `paintOrder` is idempotent and cheap.
+el("b-read").addEventListener("click", readProvider);
+for (const id of ["b-cell", "b-bits-wanted", "b-mode", "b-width", "b-span", "b-denom"]) {
+  el(id).addEventListener("input", paintOrder);
+  el(id).addEventListener("change", paintOrder);
+}
+el("b-copy").addEventListener("click", async () => {
+  const command = el("b-command").textContent;
+  try {
+    await navigator.clipboard.writeText(command);
+    el("b-copy").textContent = "Copied";
+  } catch {
+    // The clipboard API needs a secure context, and this page is opened from a
+    // file:// path or a plain-http dev server as often as not. Saying so beats a
+    // button that looks like it worked.
+    el("b-copy").textContent = "Select the command above and copy it";
+  }
+});
 
 paintNoiseField();
 
@@ -741,6 +953,10 @@ if (HAS_APP) {
   paintTiers();
   run();
   await showMeter(activeNetwork);
+  if (REQUESTED_PROVIDER) {
+    el("b-url").value = REQUESTED_PROVIDER;
+    await readProvider();
+  }
 } else {
   await showHero();
   await showFinding(activeFinding);

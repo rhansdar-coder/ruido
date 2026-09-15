@@ -61,7 +61,11 @@ function runToExit(args) {
 }
 
 async function startProvider(port, args = []) {
-  const child = spawn(NODE, [join(ROOT, "scripts/serve-provider.mjs"), "--port", String(port), ...args], {
+  // `--emits` by default: what this smoke tests is the DOOR, and every check
+  // downstream of it — "a client with the token can order" among them — needs a
+  // provider that can actually accept. The provider that refuses for want of an
+  // emitter is a different subject and is checked where the emitter lives.
+  const child = spawn(NODE, [join(ROOT, "scripts/serve-provider.mjs"), "--port", String(port), "--emits", ...args], {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -82,6 +86,25 @@ async function startProvider(port, args = []) {
   }
   child.kill();
   throw new Error(`the provider never announced a listener on ${port}:\n${log}`);
+}
+
+/**
+ * Wait for a pattern to appear in a child's output.
+ *
+ * `startProvider` returns on the listener announcement, which is the SECOND line
+ * of the banner, so a check on any later line is reading a buffer that may not
+ * have arrived yet. That is not theoretical: four lines added to the banner for
+ * the emitter declaration were enough to lose the `No --token` block, and the
+ * check then reported "the provider did not say it" about a provider that had.
+ * A smoke that samples a stream once is a smoke that fails on scheduling.
+ */
+async function waitForLog(provider, pattern, timeout = 5_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (pattern.test(provider.log())) return true;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return pattern.test(provider.log());
 }
 
 /** A request, with the token omitted unless asked for. */
@@ -115,16 +138,16 @@ try {
     const port = await freePort();
     const exposed = await startProvider(port, ["--host", "0.0.0.0", "--token", TOKEN]);
     children.push(exposed.child);
-    check(/REACHABLE FROM OUTSIDE/.test(exposed.log()), "with a token it does start, and says it is exposed");
-    check(/reachable from outside the machine/.test(exposed.log()), "and warns about what that means");
+    check(await waitForLog(exposed, /REACHABLE FROM OUTSIDE/), "with a token it does start, and says it is exposed");
+    check(await waitForLog(exposed, /reachable from outside the machine/), "and warns about what that means");
     exposed.child.kill();
   }
 
   {
     const loopback = await startProvider(await freePort(), []);
     children.push(loopback.child);
-    check(/loopback only/.test(loopback.log()), "loopback without a token is still allowed, and labelled");
-    check(/No --token: every route is open/.test(loopback.log()), "and says so out loud");
+    check(await waitForLog(loopback, /loopback only/), "loopback without a token is still allowed, and labelled");
+    check(await waitForLog(loopback, /No --token: every route is open/), "and says so out loud");
     loopback.child.kill();
   }
 

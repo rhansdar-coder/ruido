@@ -20,6 +20,7 @@
     <nav class="nav-links">
       <a href="#meter">Meter</a>
       <a href="#sim">Simulator</a>
+      <a href="#buy">Buy</a>
       <a href="#rdo">RDO</a>
       <a href="./index.html#how">Protocol</a>
       <a href="./index.html#access">Access</a>
@@ -186,6 +187,155 @@
   </div>
 </section>
 
+<!-- ================= BUY ================= -->
+<!-- The front door, and the only panel on this page that leads to spending. It
+     is deliberately here and not on the landing: the landing is the argument,
+     and this is the counter.
+
+     What it does NOT do is the point. It connects to no wallet, signs nothing,
+     sends no transaction, and does not build the order either: the client is
+     `scripts/buy.mjs`, and a second implementation in a browser would be a
+     second set of commitments — the buyer's reveal would then be openable by one
+     and not the other, which is the failure the window/reveal split exists to
+     prevent. What this panel does is read the terms a provider publishes, decide
+     whether that provider can deliver at all, and hand over the exact command.
+
+     The gate is `canSell()`, which is the same function and the same sentence
+     the provider refuses with, so this page cannot say "yes" over a provider
+     that is about to say "no". -->
+<section id="buy">
+  <div class="wrap">
+    <span class="sec-eyebrow">Buy cover</span>
+    <h2 class="sec">Where an order would be placed.</h2>
+    <p class="sec-lede">
+      Paste a provider's URL. This reads the terms it publishes, decides whether
+      it can deliver at all, and hands over the commands in the order they run.
+      <b>No wallet is connected, nothing is signed here, and no order is built
+      here</b> — the transfer is made from your own wallet.
+    </p>
+
+    <div class="buy">
+      <div>
+        <div class="panel">
+          <h3>Provider</h3>
+          <label for="b-url">Provider URL</label>
+          <input id="b-url" type="url" value="http://127.0.0.1:8081" spellcheck="false" autocomplete="off">
+
+          <label for="b-token">Access token <span class="opt">optional</span></label>
+          <input id="b-token" type="password" placeholder="only if the provider asks for one" autocomplete="off">
+
+          <button class="btn btn-primary btn-block" id="b-read" style="margin-top:20px">Read the provider</button>
+          <p class="note" id="b-note">One GET to <span class="mono">/terms</span>. Nothing else on this page talks to the provider.</p>
+        </div>
+
+        <div class="panel" id="b-terms-panel" hidden>
+          <h3>What it publishes</h3>
+          <div class="kv"><span>Network</span><span id="b-network">—</span></div>
+          <div class="kv"><span>Ladder</span><span id="b-ladder">—</span></div>
+          <div class="kv"><span>Pool fee, per call</span><span id="b-fee">—</span></div>
+          <div class="kv"><span>Margin, per decoy</span><span id="b-margin">—</span></div>
+          <div class="kv"><span>Can broadcast</span><span id="b-emits">—</span></div>
+          <div class="kv"><span>Can be paid</span><span id="b-payable">—</span></div>
+          <p class="note" id="b-height"></p>
+        </div>
+
+        <div class="panel" id="b-order" hidden>
+          <h3>Your order</h3>
+          <label for="b-cell">Candidates for your spend</label>
+          <input id="b-cell" type="number" min="1" step="1" value="3">
+          <p class="note" style="margin:-6px 0 12px">Off the meter above: the effective set for the block you are spending in.</p>
+
+          <label for="b-bits-wanted">Bits to buy</label>
+          <input id="b-bits-wanted" type="number" min="1" step="1" value="3">
+
+          <label for="b-mode">Cover strategy</label>
+          <select id="b-mode">
+            <option value="window" selected>Window-only — it learns when, not how much</option>
+            <option value="aimed">Aimed — it learns when and how much</option>
+            <option value="blind">Blind — it learns nothing, and costs the most</option>
+          </select>
+
+          <div id="b-span-field" hidden>
+            <label for="b-span">Blocks the decoys are spread over</label>
+            <input id="b-span" type="number" min="1" step="1" value="1709">
+          </div>
+
+          <label for="b-width">Window width, in blocks</label>
+          <input id="b-width" type="number" min="1" step="1" value="20">
+
+          <label for="b-denom">The rung you are hiding</label>
+          <select id="b-denom"></select>
+          <p class="note">The rung is your own amount. It is never sent — only a commitment to it is.</p>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel">
+          <h3>What this does not do</h3>
+          <p class="note" style="margin-top:0">
+            <b>It connects to no wallet and signs nothing.</b> The transfer is made
+            from your own wallet, which is the promise the access section makes.
+            There is no deposit, no custody and no refund.
+          </p>
+          <p class="note">
+            <b>It does not build the order.</b> The client does, and it writes the
+            reveal to a file. That file is the only thing that can settle the
+            order, and it carries the one secret the provider is never sent —
+            which is why it is written to disk and not generated in a tab.
+          </p>
+          <p class="note">
+            <b>It does not list providers.</b> Paste a URL you already know. The
+            book is a separate service with its own door, and an empty book is the
+            honest state of this market today.
+          </p>
+        </div>
+
+        <div class="panel" id="b-gate-panel" hidden>
+          <h3>The verdict <span class="pill" id="b-verdict">—</span></h3>
+          <p class="note" id="b-gate" style="margin-top:0"></p>
+        </div>
+
+        <div class="panel" id="b-price-panel" hidden>
+          <h3>What that costs</h3>
+          <div class="kv"><span>Decoys</span><span id="b-decoys">—</span></div>
+          <div class="kv"><span>Pool fee, one call each</span><span id="b-cost">—</span></div>
+          <div class="kv"><span>Bits delivered</span><span id="b-delivered">—</span></div>
+          <p class="note" id="b-price-note"></p>
+        </div>
+
+        <div class="panel" id="b-handoff" hidden>
+          <h3>1 · Place the order</h3>
+          <p class="note" id="b-handoff-note" style="margin-top:0"></p>
+          <pre class="cmd" id="b-command"></pre>
+          <button class="btn btn-ghost" id="b-copy" style="padding:9px 16px">Copy the command</button>
+          <p class="note">
+            The client writes the order — and the reveal that opens it — to
+            <span class="mono">orders/order.json</span>. <b>Keep that file.</b> It
+            is the only thing that can settle the order, and it carries the one
+            secret the provider is never sent.
+          </p>
+        </div>
+
+        <div class="panel" id="b-pay-panel" hidden>
+          <h3>2 · Pay it</h3>
+          <p class="note" id="b-paynote" style="margin-top:0"></p>
+        </div>
+
+        <div class="panel" id="b-reveal-panel" hidden>
+          <h3>3 · Reveal, once the window has closed</h3>
+          <pre class="cmd" id="b-reveal-cmd"></pre>
+          <p class="note">
+            Publishing the reveal earlier hands the provider the denomination
+            before it emits, so the route refuses and says how many blocks are
+            left. There is nothing to click for this: it is the fourth step, and
+            it is a command like the other three.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ================= RDO ================= -->
 <section id="rdo">
   <div class="wrap">
@@ -256,6 +406,7 @@
       <div class="foot-links">
         <a href="#meter">Meter</a>
         <a href="#sim">Simulator</a>
+        <a href="#buy">Buy</a>
         <a href="#rdo">RDO</a>
         <a href="./index.html#how">Protocol</a>
         <a href="./index.html#access">Access</a>

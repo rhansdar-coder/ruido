@@ -137,6 +137,21 @@ try {
   process.exit(1);
 }
 
+/**
+ * Whether this process can actually BROADCAST what it plans.
+ *
+ * Off by default, and the default is the honest one rather than the convenient
+ * one: the emitter is not written, so a provider started from this repository
+ * cannot deliver. With `emits` false, `acceptOrder` refuses every order — before
+ * an invoice exists — instead of taking a real on-chain payment for cover it
+ * would never emit.
+ *
+ * `--emits` is an operator asserting that a working emitter sits behind this
+ * service. It is a declaration, not a capability: nothing here checks it, which
+ * is why the book flags it as hearsay.
+ */
+const EMITS = flag("emits") || process.env.RUIDO_EMITS === "1";
+
 const TERMS = providerTerms({
   network: arg("network", "sepolia"),
   // In STRK, parsed as digits rather than as a float, and stored as base units.
@@ -147,6 +162,7 @@ const TERMS = providerTerms({
   address: arg("address", null),
   // `null` when nothing is charged, which is a statement rather than an omission.
   coordination: COORDINATION,
+  emits: EMITS,
 });
 
 /**
@@ -313,6 +329,10 @@ const server = createServer(async (request, response) => {
         network: TERMS.network,
         providerVersion: TERMS.providerVersion,
         payable: Boolean(TERMS.address),
+        // Beside `payable` because it answers the other half of the same
+        // question a monitor is asking: can a buyer transact with this process
+        // at all? Payable says money can arrive; emits says work can leave.
+        emits: TERMS.emits,
         authRequired: Boolean(TOKEN),
       });
     }
@@ -330,6 +350,9 @@ const server = createServer(async (request, response) => {
         paymentNote: TERMS.address
           ? `Prepaid in STRK. The invoice quotes an amount unique to THIS order; send exactly that figure to ${TERMS.address} and then post the transaction hash. A transfer without the tag is refused, an amount one base unit off is refused, and a hash that already paid another order is refused.`
           : "This provider was started without --address, so it cannot be paid: a payment is checked by looking for a transfer to the provider's own account, and there is nothing to look for. The payment route answers 503.",
+        emitsNote: TERMS.emits
+          ? "This provider declares it can BROADCAST the cover it plans. Nothing outside it can check that, so it is its word — which is why the book flags the field as hearsay rather than stating it as a fact."
+          : "This provider has NO EMITTER: it can price and plan, but it cannot broadcast cover, so POST /orders refuses every order rather than invoicing work it would never do. Nothing here is for sale until an emitter is wired behind it and --emits is passed.",
         note: "Send the order and the WINDOW proof. Sending the full reveal hands over the denomination, which is the one thing this split exists to protect.",
         revealNote: "The reveal is the fourth step and is only accepted once the window has closed. Publishing it earlier hands the provider the rung before it emits, so the route refuses and says how many blocks are left.",
         heightSource: {
@@ -618,6 +641,19 @@ server.listen(PORT, HOST, () => {
       : "  no --address: this provider cannot be paid. A payment is verified by looking for a\n" +
           "  transfer to the provider's own account, so with none configured the payment route\n" +
           "  answers 503 rather than recording a hash it cannot check.\n",
+  );
+  // The other half of the same question, and it is asked in the same place for
+  // the same reason: an operator should learn this from the process, not from a
+  // buyer who paid and got nothing.
+  console.log(
+    TERMS.emits
+      ? "  --emits: this provider declares it can BROADCAST the plan it makes. Nothing here\n" +
+          "  checks that, so the book lists it as hearsay — and if the declaration is false,\n" +
+          "  orders are accepted and cover is never emitted.\n"
+      : "  NO EMITTER: this provider plans but cannot broadcast, so POST /orders REFUSES every\n" +
+          "  order. Accepting one IS the commitment to emit, and invoicing work that would\n" +
+          "  never happen is the failure that refusal exists to prevent. Pass --emits once a\n" +
+          "  real emitter is wired behind this service.\n",
   );
   console.log(
     {

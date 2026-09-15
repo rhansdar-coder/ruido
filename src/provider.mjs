@@ -38,6 +38,7 @@
 import { DENOMINATIONS, FEE_PER_CALL } from "./cover.mjs";
 import { DOMAIN, hashFelt, networkId, verifyWindowProof } from "./commitment.mjs";
 import { ORDER_VERSION } from "./order.mjs";
+import { canSell } from "./sale.mjs";
 import { TAG_MOD } from "./payment.mjs";
 import { UNIT } from "./pool.mjs";
 import { randomInt } from "./rng.mjs";
@@ -87,6 +88,7 @@ export function providerTerms({
   address = null,
   maxDecoys = 100_000,
   coordination = null,
+  emits = false,
 } = {}) {
   if (!Number.isInteger(ladder) || ladder < 1) {
     throw new Error(`a ladder needs at least one rung, got ${ladder}`);
@@ -115,6 +117,24 @@ export function providerTerms({
     // in `readCoordination` (src/orderbook.mjs), and the provider's obligation to
     // forward is `commissionRequest` (src/commission.mjs).
     coordination,
+    // Whether this provider can actually BROADCAST the plan it makes. The
+    // default is `false`, and that is the safe direction: a provider that does
+    // not say it can emit cannot, and `acceptOrder` refuses on it.
+    //
+    // The failure this closes is not hypothetical. Until this field existed, a
+    // provider with no emitter — which is every provider in this repository,
+    // because the emitter is not written — would accept an order, invoice it,
+    // verify a REAL on-chain payment, mark the invoice paid and hand back a plan
+    // it would never emit. Money taken for work it cannot do, with the receipt
+    // to prove it. Accepting an order IS the commitment to emit (`src/trust.mjs`
+    // says so in those words), so a provider that cannot emit must not accept.
+    //
+    // Additive and optional, so `PROVIDER_VERSION` does not move, for the same
+    // reason `coordination` did not: absence is the SAFE reading here, so there
+    // is no silent mis-read for a version guard to catch. A reader that has never
+    // heard of the field sees `emits: false` and declines to order, which is
+    // exactly what it should do.
+    emits: Boolean(emits),
   };
 }
 
@@ -130,9 +150,21 @@ export function providerTerms({
  * the window proof: without it the plaintext window in the order is an
  * unverified claim, and emitting on an unverified claim is how a provider does
  * unpaid work.
+ *
+ * The FIRST check is not about the order at all. A provider that cannot emit
+ * refuses every order, so it says so before it reads one — and the reason it
+ * gives is about itself rather than about the order, because a buyer who
+ * reaches a provider that cannot serve them sent a perfectly good order.
+ * Reporting an order problem there would be a red herring that blames the buyer
+ * for the provider's gap.
  */
 export function acceptOrder(order, windowProof, { terms }) {
   const reject = (reason) => ({ ok: false, reason, window: null });
+
+  // The same function the buyer's screen gates on, so a page cannot hand over a
+  // command this line is about to refuse.
+  const sale = canSell(terms);
+  if (!sale.ok) return reject(sale.reason);
 
   if (order.version !== ORDER_VERSION) {
     return reject(`unsupported order version ${order.version}`);

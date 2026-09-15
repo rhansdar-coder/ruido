@@ -41,7 +41,7 @@
     "shots": "node scripts/screenshots.mjs",
     "site": "node scripts/build-site.mjs",
     "site:check": "node scripts/build-site.mjs --check",
-    "test": "node --test tests/ruido.test.mjs tests/keccak.test.mjs tests/collect.test.mjs tests/starknet-events.test.mjs tests/denomination.test.mjs tests/actions.test.mjs tests/order.test.mjs tests/provider.test.mjs tests/payment.test.mjs tests/commission.test.mjs tests/orderbook.test.mjs tests/trust.test.mjs tests/reveal.test.mjs tests/blockheight.test.mjs tests/site.test.mjs tests/dom-contract.test.mjs tests/robinhood.test.mjs"
+    "test": "node --test tests/ruido.test.mjs tests/keccak.test.mjs tests/collect.test.mjs tests/starknet-events.test.mjs tests/denomination.test.mjs tests/actions.test.mjs tests/order.test.mjs tests/provider.test.mjs tests/sale.test.mjs tests/payment.test.mjs tests/commission.test.mjs tests/orderbook.test.mjs tests/trust.test.mjs tests/reveal.test.mjs tests/blockheight.test.mjs tests/site.test.mjs tests/dom-contract.test.mjs tests/robinhood.test.mjs"
   },
   "engines": {
     "node": ">=20"

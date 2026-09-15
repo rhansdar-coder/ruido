@@ -260,6 +260,18 @@ const SECTIONS = [
   ["01b-hero-full", null, 1500, null, "index.html"],
   ["02-how", "how", 1150, null, "index.html"],
   ["03-simulator", "sim", 1250, null, "app.html"],
+  // The buy panel, in its default state: no provider read yet, so every panel
+  // below the URL field is hidden. That is the honest first render — the page
+  // shows nothing about a provider until it has asked one, and the shot is here
+  // to keep it that way.
+  ["03b-buy", "buy", 1400, null, "app.html"],
+  // The panel's other state — a provider read, and the gate refusing it — is NOT
+  // a section here. It needs a provider running on 8082, and a run without one
+  // would capture "could not reach a provider" under a name that promises a
+  // refusal: a wrong artifact that looks right, which is the one thing this file
+  // exists to avoid. It is reachable by hand with
+  //   app.html?provider=http://127.0.0.1:8082#buy
+  // and `?provider=` is in app.js for exactly that.
   ["04-compare", "compare", 1250, null, "index.html"],
   ["05-other-chains", "robinhood", 1800, "find=robinhood", "index.html"],
   // The same section on the other two chains. Not decoration: this is the

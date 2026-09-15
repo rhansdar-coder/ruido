@@ -67,7 +67,10 @@ function buyer({ seed = 1, rung = DENOMINATIONS[3], from = FROM, width = WIDTH, 
   return { order, reveal, priced };
 }
 
-const TERMS = providerTerms({ network: NETWORK });
+// `emits: true` because this is the WORKING provider: everything below drives a
+// real order through accept, invoice, pay, plan and settle, and a provider that
+// cannot broadcast refuses every order at the very first check.
+const TERMS = providerTerms({ network: NETWORK, emits: true });
 
 /** The plan turned into the shape settlement reads, which is what the chain gives. */
 const asEmitted = (plan) => plan.map((d, i) => ({ noteId: `0x${(i + 1).toString(16)}`, block: d.block, denomination: d.denomination }));
@@ -179,7 +182,10 @@ test("an order id that is not derived from its own commitments is refused", () =
 test("an order over the provider's cap is refused, and the cap is a real number", () => {
   const { order, reveal } = buyer();
   const proof = parseWindowProof(serialiseWindowProof(reveal));
-  const small = providerTerms({ network: NETWORK, maxDecoys: 10 });
+  // `emits: true` matters here: without it the refusal would be the emitter
+  // check and the test would pass while proving nothing about the cap. That is
+  // the whole point of the assertion below — the refusal has to be the cap.
+  const small = providerTerms({ network: NETWORK, maxDecoys: 10, emits: true });
   const accepted = acceptOrder(order, proof, { terms: small });
   assert.equal(accepted.ok, false);
   assert.match(accepted.reason, /over the provider's cap/);
@@ -194,6 +200,39 @@ test("an order asking for zero bits is refused", () => {
   const accepted = acceptOrder({ ...order, bits: 0 }, proof, { terms: TERMS });
   assert.equal(accepted.ok, false);
   assert.match(accepted.reason, /positive number of bits/);
+});
+
+test("a provider with no emitter refuses every order, and the reason is about itself", () => {
+  const { order, reveal } = buyer();
+  const proof = parseWindowProof(serialiseWindowProof(reveal));
+  const accepted = acceptOrder(order, proof, { terms: providerTerms({ network: NETWORK }) });
+
+  assert.equal(accepted.ok, false);
+  assert.match(accepted.reason, /no emitter/);
+  // The reason has to be about the PROVIDER, and this is the assertion that
+  // matters. A buyer who reaches a provider that cannot serve them sent a
+  // perfectly good order; a message about the order would send them away to fix
+  // something that is not broken, which is the same failure as a refusal that
+  // names the wrong field.
+  assert.doesNotMatch(accepted.reason, /window|derived|version|cap|bits/);
+});
+
+test("the emitter check runs FIRST, so a broken order still gets the true reason", () => {
+  // Two things are wrong here: the provider cannot emit, and the order is
+  // garbage. The provider's own incapacity is the blocking fact and it is not
+  // the order's fault, so that is what comes back.
+  const accepted = acceptOrder({ version: 99 }, null, { terms: providerTerms({ network: NETWORK }) });
+  assert.equal(accepted.ok, false);
+  assert.match(accepted.reason, /no emitter/);
+});
+
+test("emitting is opt-in: a provider that does not declare it cannot sell", () => {
+  // The default is the safe direction rather than the convenient one. Every
+  // provider in this repository is started without an emitter, because the
+  // emitter is not written — so a default of `true` would be a lie by default,
+  // and that lie costs a buyer a real on-chain transfer.
+  assert.equal(providerTerms({ network: NETWORK }).emits, false);
+  assert.equal(providerTerms({ network: NETWORK, emits: true }).emits, true);
 });
 
 // --- the invoice --------------------------------------------------------------
