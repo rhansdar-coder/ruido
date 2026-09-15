@@ -173,7 +173,8 @@ an external party is the one that happens once, before the product does anything
 | secret | the pool viewing key, on that host only |
 
 ```bash
-# in erebus-ops-sepolia/
+# the ops stack is a SIBLING of this repository, not a directory inside it
+cd ../erebus-ops-sepolia
 cp sepolia.env.example sepolia.env
 $EDITOR sepolia.env              # ETHEREUM_WS_URL is mandatory
 ./bootstrap.sh                   # flag preflight, disk check, snapshot, start
@@ -184,6 +185,15 @@ ssh -L 6060:127.0.0.1:6060 -L 3000:127.0.0.1:3000 user@host   # if remote
 
 Both ports bind to `127.0.0.1` only. There is no LAN or public exposure in
 `compose.yaml`; a remote host is reached through the tunnel.
+
+**Where the stack lives, because a clone of this repository will not contain
+it.** `erebus-ops-sepolia/` sits **beside** this repository, as a sibling
+directory, and is its own git repository (first commit `d9cb5b4`). It is
+versioned separately because it is the Sepolia twin of the Erebus repo's
+`ops/juno/` — infrastructure that runs the loop, not part of the measurement
+instrument. Every `erebus-ops-sepolia/…` path in this document and in
+[`RUNBOOK-emitter.md`](RUNBOOK-emitter.md) is relative to the **workspace root**,
+not to this repository's root.
 
 ---
 
@@ -196,7 +206,7 @@ Both ports bind to `127.0.0.1` only. There is no LAN or public exposure in
 | calldata encoder | **live**, round-trip identical over 83 real transactions across all seven implementations |
 | action-set order rules | **live**, provoked on the deployed contract |
 | screening scope (which sets need an attestation) | **measured** on the live class |
-| node + prover stack | **written**, `erebus-ops-sepolia/`, needs the host above |
+| node + prover stack | **written and versioned**, in `../erebus-ops-sepolia/` (`d9cb5b4`) — a sibling directory, not inside this repo; needs the host above |
 | emitter: assembling `UseNote` + `CreateEncNote` | **built and verified.** `src/emitter.mjs` assembles, checks and encodes the set, `npm run emit` prints it, and `npm run check:decoy` confirms the deployed pool reads the wire format |
 | emitter: the seven-step pipeline (steps 3-7) | **not built.** Needs the node, the prover and a funded account — i.e. the host below |
 | settlement | **specified**, not built — see [`TOKEN.md`](TOKEN.md) |

@@ -77,6 +77,11 @@ whole loop is local from the first block.
 
 ## The steps
 
+Every `erebus-ops-sepolia/…` path below is relative to the **workspace root**:
+that stack is a sibling of this repository, not a directory inside it, and a
+clone of Ruido alone will not contain it. See
+[`CONNECT.md`](CONNECT.md) for where it lives and why it is versioned separately.
+
 **Step 0 — probe before spending anything.** This decides whether you need an
 external party at all, and it costs nothing.
 
